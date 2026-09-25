@@ -62,6 +62,8 @@ export type ResearchLimitsInput = {
   // Backward-compatible alias for maxRawCandidates.
   maxCandidates?: number | null
   maxCredits?: number | null
+  /** Opt-in near-miss rescue in the AI lead check (lib/research/judge.ts). */
+  rescueNearMisses?: boolean | null
 }
 
 export type ResearchLimits = {
@@ -70,6 +72,9 @@ export type ResearchLimits = {
   // Backward-compatible response alias for old Hub and API consumers.
   maxCandidates: number
   maxCredits: number
+  /** Present (true) only when the caller opted in, so every existing plan
+   *  keeps its exact shape and hash. */
+  rescueNearMisses?: true
 }
 
 export type OpportunitySourceRoutingSignal = {
@@ -810,6 +815,9 @@ export function buildSourcePlan(
       maxRawCandidates,
       maxCandidates: maxRawCandidates,
       maxCredits,
+      // Bound into the plan hash only when set: a quote confirmed without it
+      // cannot execute with it, and plans that never ask are unchanged.
+      ...(limits?.rescueNearMisses === true ? { rescueNearMisses: true as const } : {}),
     },
     qualificationProfile: compileQualificationProfile(play, entityKind),
     query,

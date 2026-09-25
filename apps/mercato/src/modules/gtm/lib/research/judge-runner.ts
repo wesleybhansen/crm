@@ -10,6 +10,11 @@ import type { JudgeEm, JudgePlay, JudgeRunResult } from './judge'
  * Switched off with GTM_LEAD_CHECK_ENABLED=false.
  */
 
+/** True only for an explicit `rescueNearMisses: true` frozen into the run's limits. */
+export function rescueNearMissesEnabled(limits: unknown): boolean {
+  return Boolean(limits) && typeof limits === 'object' && (limits as Record<string, unknown>).rescueNearMisses === true
+}
+
 export type LeadCheckOutcome =
   | ({ status: 'checked' } & JudgeRunResult)
   | { status: 'skipped'; reason: 'disabled' | 'allowance' | 'ai_unconfigured' | 'error' }
@@ -64,6 +69,9 @@ export async function runLeadCheck(input: {
       play: input.play,
       model: createGeminiDraftModel(apiKey),
       meter,
+      // Opt-in per run: only a run created with limits.rescueNearMisses
+      // (the Launch Pad's included first run) reads its near-miss listings.
+      rescueNearMisses: rescueNearMissesEnabled(input.run.limits),
     })
     return { status: 'checked', ...result }
   } catch (error) {

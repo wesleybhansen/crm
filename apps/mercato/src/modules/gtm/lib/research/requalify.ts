@@ -1,3 +1,4 @@
+import { isRescuableNearMiss, NEAR_MISS_REASON } from './judge'
 import type { CandidateEvidence, CandidateIdentity } from '../adapters/types'
 import {
   GtmAuditEvent,
@@ -424,9 +425,18 @@ export async function requalifyResearchRun(input: {
       // A post the AI lead check rejected stays rejected: re-scoring re-runs
       // the rules, not the (metered) check, and must never resurrect it.
       const priorJudge = (priorQualification?.judge ?? null) as Record<string, unknown> | null
+      // A near miss the check rescued (judge.ts, opt-in per run) stays in
+      // review while the rules still reject it ONLY on the keyword/industry
+      // match; any other rule failure (exclusion, geography, recency) wins.
+      const rescueHolds = priorJudge?.rescued === true
+        && priorJudge.verdict === 'keep'
+        && ruleFit.verdict === 'rejected'
+        && isRescuableNearMiss({ rejectReason: ruleFit.reason, criteria: ruleFit.criteria, urls: (identity as Record<string, unknown>).urls })
       const fit = priorJudge?.verdict === 'reject' && ruleFit.verdict !== 'rejected'
         ? { ...ruleFit, verdict: 'rejected' as const, reason: String(priorJudge.reason_code ?? 'ai_check_rejected') }
-        : ruleFit
+        : rescueHolds
+          ? { ...ruleFit, verdict: 'review' as const, reason: NEAR_MISS_REASON }
+          : ruleFit
       candidate.identity = identity
       const qualification = {
         scorer_revision: FIT_SCORER_REVISION,
@@ -440,6 +450,7 @@ export async function requalifyResearchRun(input: {
           Array.isArray(row.qualityIssues) ? row.qualityIssues : [],
         ),
         ...(priorJudge ? { judge: priorJudge } : {}),
+        ...(rescueHolds && priorQualification?.rescued_from ? { rescued_from: priorQualification.rescued_from } : {}),
       }
       if (match) {
         match.fitStatus = fit.verdict

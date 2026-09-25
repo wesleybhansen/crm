@@ -127,6 +127,9 @@ const researchLimitsSchema = z.object({
   // Legacy alias retained for current Hub and v1 clients.
   maxCandidates: z.number().int().min(1).max(100).optional(),
   maxCredits: z.number().int().min(1).optional(),
+  // Opt-in near-miss rescue in the AI lead check (lib/research/judge.ts).
+  // Only the Launch Pad's included first run sends it.
+  rescueNearMisses: z.boolean().optional(),
 })
 
 export const gtmResearchRunsBodySchema = z.discriminatedUnion('op', [
@@ -261,7 +264,10 @@ export type GtmDecisionMakersBody = z.infer<typeof gtmDecisionMakersBodySchema>
 
 export const gtmCandidatesBodySchema = z.object({
   noliUserId: idString,
-  op: z.enum(['list', 'review', 'detail', 'export']).optional().default('list'),
+  op: z.enum(['list', 'review', 'detail', 'export', 'shortlist']).optional().default('list'),
+  // shortlist op: the runs whose current rows are ranked, and how many to return.
+  runIds: z.array(idString).min(1).max(50).optional(),
+  limit: z.number().int().min(1).max(50).optional(),
   // list filters
   runId: idString.optional(),
   playId: idString.optional(),
@@ -276,6 +282,12 @@ export const gtmCandidatesBodySchema = z.object({
   // audited export operation; caller-supplied body copies are stripped.
   idempotency_key: idString.optional(),
 }).superRefine((body, issue) => {
+  if (body.op === 'shortlist') {
+    if (!body.runIds?.length) {
+      issue.addIssue({ code: z.ZodIssueCode.custom, path: ['runIds'], message: 'runIds is required for shortlist' })
+    }
+    return
+  }
   if (body.op !== 'export') return
   for (const key of ['workspaceId', 'playId', 'idempotency_key'] as const) {
     if (!body[key]) {

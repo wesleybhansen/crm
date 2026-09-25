@@ -196,6 +196,32 @@ describe('POST /internal/gtm/candidates', () => {
     expect((filtered.summary as Record<string, unknown>).total).toBe(1)
   })
 
+  it('shortlist: ranks the given runs, requires runIds, and is a read op', async () => {
+    const { POST } = await import('../../api/internal/candidates/route')
+    const { run, candidate } = await seedPlayCandidate('manual_only')
+
+    const missing = await POST(internalRequest({ op: 'shortlist', noliUserId: HARNESS_NOLI_USER }))
+    expect(missing.status).toBe(400)
+    const tooMany = await POST(internalRequest({ op: 'shortlist', noliUserId: HARNESS_NOLI_USER, runIds: [run.id], limit: 51 }))
+    expect(tooMany.status).toBe(400)
+
+    const body = await readJson(
+      await POST(internalRequest({ op: 'shortlist', noliUserId: HARNESS_NOLI_USER, runIds: [run.id, 'not-a-uuid'] })),
+    )
+    expect(body.ok).toBe(true)
+    expect(body.pool).toMatchObject({ viable: 1, accepted: 1, review: 0 })
+    const [row] = body.shortlist as Array<Record<string, any>>
+    expect(row).toMatchObject({ rank: 1, candidate_id: candidate.id, entity_kind: 'person', name: 'Synthetic Shared Person' })
+    // Manual-only play: no email fact, and never an email value.
+    expect(row.contact.has_email).toBe(false)
+    expect(JSON.stringify(body)).not.toContain('shared@fixture.example')
+
+    // View-only callers can read it.
+    resetHarness({ features: ['gtm.view'] })
+    const viewer = await POST(internalRequest({ op: 'shortlist', noliUserId: HARNESS_NOLI_USER, runIds: [run.id] }))
+    expect(viewer.status).toBe(200)
+  })
+
   it('takes the export idempotency key from the header, never from the body (L5)', async () => {
     const { POST } = await import('../../api/internal/candidates/route')
     const { play } = await seedPlayCandidate('automated_email')
