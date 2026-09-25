@@ -4,6 +4,11 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     fields: [{ field: 'email', hashField: 'email_hash' }],
   },
   {
+    // Public event registrations (2026-09-25 review, M11).
+    entityId: 'customers:event_attendee',
+    fields: [{ field: 'attendee_name' }, { field: 'attendee_email' }],
+  },
+  {
     entityId: 'customers:customer_address',
     fields: [
       { field: 'name' },

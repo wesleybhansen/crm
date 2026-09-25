@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
+import { whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
 
 
 export const metadata = { path: '/crm-events/public/[slug]/checkout', POST: { requireAuth: false } }
@@ -34,7 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
 
     // Duplicate check
-    const existing = await knex('event_attendees').where('event_id', event.id).where('attendee_email', email.trim().toLowerCase()).where('status', 'registered').first()
+    const existing = await (await whereAttendeeEmail(knex('event_attendees').where('event_id', event.id), email, String(event.tenant_id))).where('status', 'registered').first()
     if (existing) return NextResponse.json({ ok: false, error: 'Already registered', alreadyRegistered: true }, { status: 409 })
 
     // Get Stripe connection

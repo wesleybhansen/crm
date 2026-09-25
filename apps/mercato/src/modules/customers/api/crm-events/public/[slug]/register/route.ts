@@ -6,6 +6,7 @@ import { findOrMergeContact as findContactByEmail } from '@/modules/customers/li
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
+import { encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
 
 
 export const metadata = { path: '/crm-events/public/[slug]/register', POST: { requireAuth: false, rateLimit: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'events-public-register' } } }
@@ -57,16 +58,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
 
     // Duplicate check
-    const existing = await knex('event_attendees')
-      .where('event_id', event.id)
-      .where('attendee_email', email.trim().toLowerCase())
+    const existing = await (await whereAttendeeEmail(knex('event_attendees').where('event_id', event.id), email, String(event.tenant_id)))
       .where('status', 'registered')
       .first()
     if (existing) return NextResponse.json({ ok: false, error: 'You are already registered', alreadyRegistered: true }, { status: 409 })
 
     // Create attendee
     const attendeeId = crypto.randomUUID()
-    await knex('event_attendees').insert({
+    await knex('event_attendees').insert(await encryptAttendeeRow({
       id: attendeeId, tenant_id: event.tenant_id, organization_id: event.organization_id,
       event_id: event.id,
       attendee_name: name.trim(), attendee_email: email.trim().toLowerCase(),
@@ -75,7 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       registration_data: registrationData ? JSON.stringify(registrationData) : '{}',
       accepted_terms: !!acceptedTerms,
       registered_at: new Date(), created_at: new Date(),
-    })
+    }, String(event.tenant_id), String(event.organization_id)))
 
     // Update attendee count
     await knex('events').where('id', event.id).increment('attendee_count', qty)

@@ -14,16 +14,21 @@ export const SEARCH_INDEX_MIGRATION_NAME = 'Migration20260925120000'
 
 const q = (s: string) => `'${s.replace(/'/g, "''")}'`
 
+/* Maps as of Migration20260925120000, whose SQL this file must reproduce
+ * exactly (migrationsSelfContained pins it). Later maps (event attendees, a
+ * raw table with no query-index documents) are not part of that schema. */
+const INDEXED_MAPS = DEFAULT_ENCRYPTION_MAPS.filter((m) => m.entityId !== 'customers:event_attendee')
+
 /** Entity types whose query-index documents carry encrypted-by-design fields. */
 function encryptedEntityTypes(): string[] {
-  return DEFAULT_ENCRYPTION_MAPS.map((m) => m.entityId)
+  return INDEXED_MAPS.map((m) => m.entityId)
 }
 
 /** (entity_type, field) pairs search_tokens must not hold, profiles including their parent contact fields. */
 function encryptedFieldPairs(): Array<[string, string]> {
   const pairs: Array<[string, string]> = []
-  const parent = DEFAULT_ENCRYPTION_MAPS.find((m) => m.entityId === 'customers:customer_entity')?.fields ?? []
-  for (const map of DEFAULT_ENCRYPTION_MAPS) {
+  const parent = INDEXED_MAPS.find((m) => m.entityId === 'customers:customer_entity')?.fields ?? []
+  for (const map of INDEXED_MAPS) {
     for (const f of map.fields) pairs.push([map.entityId, f.field])
     if (map.entityId === 'customers:customer_person_profile' || map.entityId === 'customers:customer_company_profile') {
       for (const f of parent) pairs.push([map.entityId, f.field])

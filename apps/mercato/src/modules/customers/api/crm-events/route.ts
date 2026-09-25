@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { espOwnFromAddress } from '../../../email/lib/routing-service'
 import crypto from 'crypto'
+import { decryptAttendeesForSend } from '@/modules/customers/lib/event-attendees'
 
 
 function slugify(text: string): string {
@@ -207,7 +208,11 @@ export async function PUT(req: Request) {
     // Send cancellation emails if requested
     if (body.status === 'cancelled' && body.sendCancellationEmail) {
       const event = await knex('events').where('id', id).first()
-      const attendees = await knex('event_attendees').where('event_id', id).where('status', 'registered')
+      const storedAttendees = await knex('event_attendees').where('event_id', id).where('status', 'registered')
+      // Strict for a send: undecryptable registrations are skipped (M11).
+      const { rows: attendees } = event
+        ? await decryptAttendeesForSend(storedAttendees, event.tenant_id, event.organization_id)
+        : { rows: [] as typeof storedAttendees }
       // Send via the org's own ESP only (no platform sender).
       const espConn = await knex('esp_connections').where('organization_id', auth.orgId).where('is_active', true).first()
       const resendKey = espConn?.provider === 'resend'

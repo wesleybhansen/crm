@@ -421,11 +421,15 @@ export async function POST(req: Request) {
           const attendeeEmail = meta.attendeeEmail.toLowerCase()
           const ticketQty = parseInt(meta.ticketQuantity) || 1
 
-          const existingAtt = await knex('event_attendees').where('event_id', eventId).where('attendee_email', attendeeEmail).where('status', 'registered').first()
+          // Registrations are encrypted and matched on the keyed email hash (M11).
+          const { encryptAttendeeRow, whereAttendeeEmail } = await import('../../../../customers/lib/event-attendees')
+          const attTenantId = String(meta.tenantId || tenantId)
+          const attOrgId = String(meta.orgId || orgId)
+          const existingAtt = await (await whereAttendeeEmail(knex('event_attendees').where('event_id', eventId), attendeeEmail, attTenantId)).where('status', 'registered').first()
           if (!existingAtt) {
             const attendeeId = require('crypto').randomUUID()
-            await knex('event_attendees').insert({
-              id: attendeeId, tenant_id: meta.tenantId || tenantId, organization_id: meta.orgId || orgId,
+            await knex('event_attendees').insert(await encryptAttendeeRow({
+              id: attendeeId, tenant_id: attTenantId, organization_id: attOrgId,
               event_id: eventId, attendee_name: attendeeName, attendee_email: attendeeEmail,
               status: 'registered', ticket_quantity: ticketQty,
               guest_details: meta.guestDetails || null,
@@ -433,7 +437,7 @@ export async function POST(req: Request) {
               accepted_terms: meta.acceptedTerms === 'true',
               payment_id: session.payment_intent?.toString() || session.id,
               registered_at: new Date(), created_at: new Date(),
-            })
+            }, attTenantId, attOrgId))
             await knex('events').where('id', eventId).increment('attendee_count', ticketQty)
 
             // Create CRM contact
