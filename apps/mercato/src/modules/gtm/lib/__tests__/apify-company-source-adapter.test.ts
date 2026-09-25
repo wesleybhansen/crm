@@ -10,8 +10,11 @@ import {
   APIFY_COMPANY_SOURCE_ADAPTER_ID,
   APIFY_COMPANY_SOURCE_BUILD,
   APIFY_COMPANY_START_UNITS,
+  APIFY_COMPANY_MAX_QUERY_ATTEMPTS,
   apifyCompanySourceApproved,
   buildApifyCompanySearchInput,
+  companySearchLocations,
+  companySearchQueries,
   createApifyCompanySourceAdapter,
   normalizeApifyCompanyItem,
 } from '../adapters/apify/company-source'
@@ -132,9 +135,10 @@ describe('Apify LinkedIn company source contract', () => {
     const quote = createApifyCompanySourceAdapter({ env: ENABLED_ENV, now }).quote(PLAN)
     expect(quote).toEqual(expect.objectContaining({
       max_candidates: 25,
-      provider_units: 25.25,
+      // Every result plus a start event for each of the three query attempts.
+      provider_units: 25.75,
       billable_unit: 'full_company',
-      estimated_credits_before_markup: 25_250,
+      estimated_credits_before_markup: 25_750,
     }))
   })
 
@@ -161,6 +165,89 @@ describe('Apify LinkedIn company source contract', () => {
     })).toEqual(expect.objectContaining({
       searchQuery: 'dental',
     }))
+  })
+
+  it('falls back from signal phrases to company keywords to industries, each once', () => {
+    const plan = {
+      ...PLAN,
+      provider_query: {
+        ...PLAN.provider_query,
+        source_search_keywords: ['commercial building permit', 'specialty contractor permit'],
+        company_keywords: ['mechanical contractor', 'electrical contractor'],
+        industries: ['Construction'],
+      },
+    }
+    expect(APIFY_COMPANY_MAX_QUERY_ATTEMPTS).toBe(3)
+    // Long OR chains came back empty live: two terms per query at most.
+    expect(companySearchQueries({ ...plan, provider_query: { company_keywords: ['subcontractor', 'electrical', 'plumbing', 'glazing'], industries: ['Construction', 'Trades'] } }))
+      .toEqual(['subcontractor OR electrical', 'Construction'])
+    expect(companySearchQueries(plan)).toEqual([
+      '"commercial building permit" OR "specialty contractor permit"',
+      '"mechanical contractor" OR "electrical contractor"',
+      'Construction',
+    ])
+    expect(buildApifyCompanySearchInput(plan, 1).searchQuery).toBe('"mechanical contractor" OR "electrical contractor"')
+    // Duplicate lists collapse: nothing is searched twice.
+    expect(companySearchQueries({ ...PLAN, provider_query: { company_keywords: ['dentist'], source_search_keywords: ['dentist'] } })).toEqual(['dentist'])
+    // Nothing structured: the plan's own query, once.
+    expect(companySearchQueries({ ...PLAN, provider_query: {} })).toEqual(['small dental practices San Diego California'])
+  })
+
+  it('replaces counties and regions LinkedIn cannot resolve with their state, never widening a search', () => {
+    expect(companySearchLocations([
+      'Denver, Colorado', 'Arapahoe County, Colorado', 'Colorado Front Range', 'Denver metro, Colorado', 'Ohio',
+    ])).toEqual(['Denver, Colorado', 'Colorado', 'Ohio'])
+    // Real places that only look like regions pass through unchanged.
+    for (const place of ['Valley City, North Dakota', 'Kansas City, Missouri', 'Virginia Beach, Virginia', 'Grand Valley, Colorado']) {
+      expect(companySearchLocations([place])).toEqual([place])
+    }
+    expect(companySearchLocations(['Orleans Parish, Louisiana'])).toEqual(['Louisiana'])
+    // Nothing resolvable: keep the play's list rather than search nationwide.
+    expect(companySearchLocations(['Twin Cities metro'])).toEqual(['Twin Cities metro'])
+    expect(companySearchLocations([])).toEqual([])
+  })
+
+  it('tries the next query only after an empty result and bills each empty start', async () => {
+    const queries: string[] = []
+    const adapter = createApifyCompanySourceAdapter({
+      env: ENABLED_ENV,
+      now,
+      runActor: async (_actorId, input) => {
+        queries.push(input.searchQuery as string)
+        return queries.length < 3 ? outcome({ status: 'no_result', kind: 'no_result', items: [], itemCount: 0 }) : outcome({ items: [companyItem()], itemCount: 1 })
+      },
+    })
+    const plan = {
+      ...PLAN,
+      provider_query: { ...PLAN.provider_query, source_search_keywords: ['dental permit'], company_keywords: ['dental clinic'], industries: ['Dentistry'] },
+    }
+    const result = await adapter.search(plan)
+    expect(queries).toEqual(['"dental permit"', '"dental clinic"', 'Dentistry'])
+    expect(result.status).toBe('ok')
+    expect(result.cost_units).toBe(1 + APIFY_COMPANY_START_UNITS * 3)
+    expect((result.receipt as Record<string, unknown>).query_attempts).toHaveLength(3)
+
+    queries.length = 0
+    const empty = createApifyCompanySourceAdapter({
+      env: ENABLED_ENV, now,
+      runActor: async (_a, input) => { queries.push(input.searchQuery as string); return outcome({ status: 'no_result', kind: 'no_result' }) },
+    })
+    const none = await empty.search(plan)
+    expect(none.status).toBe('no_result')
+    expect(none.cost_units).toBe(APIFY_COMPANY_START_UNITS * 3)
+
+    queries.length = 0
+    const failing = createApifyCompanySourceAdapter({
+      env: ENABLED_ENV, now,
+      runActor: async (_a, input) => {
+        queries.push(input.searchQuery as string)
+        return queries.length === 1 ? outcome({ status: 'no_result', kind: 'no_result' }) : outcome({ status: 'error', kind: 'error', error: 'provider_http_500' })
+      },
+    })
+    const errored = await failing.search(plan)
+    expect(queries).toHaveLength(2)
+    expect(errored.status).toBe('error')
+    expect(errored.cost_units).toBe(APIFY_COMPANY_START_UNITS)
   })
 
   it('normalizes exact company firmographics and a public evidence URL', () => {
@@ -277,7 +364,7 @@ describe('Apify LinkedIn company source contract', () => {
     expect(result.receipt).not.toHaveProperty('body_snippet')
   })
 
-  it('charges only the fixed start event on a definitive empty run', async () => {
+  it('charges only the fixed start events on a definitive empty run (one per query tried)', async () => {
     const adapter = createApifyCompanySourceAdapter({
       env: ENABLED_ENV,
       now,
@@ -289,8 +376,9 @@ describe('Apify LinkedIn company source contract', () => {
     const result = await adapter.search(PLAN)
     expect(result).toEqual(expect.objectContaining({
       status: 'no_result',
-      cost_units: 0.25,
-      receipt: expect.objectContaining({ actor_start_billed: true }),
+      // PLAN has company keywords and an industry: two queries, two starts.
+      cost_units: 0.5,
+      receipt: expect.objectContaining({ actor_start_billed: true, empty_attempts_billed: 2 }),
     }))
     expect(result.receipt).not.toHaveProperty('body_snippet')
   })

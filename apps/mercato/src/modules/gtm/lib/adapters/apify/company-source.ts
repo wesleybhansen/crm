@@ -68,6 +68,11 @@ export const APIFY_COMPANY_ACTOR_START_USD = 0.001
 // vocabulary: $0.001 / $0.004 = 0.25 full-company units.
 export const APIFY_COMPANY_START_UNITS =
   APIFY_COMPANY_ACTOR_START_USD / APIFY_COMPANY_FULL_RESULT_USD
+/** Distinct search queries one batch may try, in order, stopping at the first
+ *  that returns rows. Each empty attempt costs one start event ($0.001), so a
+ *  batch's worst case is two wasted starts: the quote carries all three. */
+export const APIFY_COMPANY_MAX_QUERY_ATTEMPTS = 3
+export const APIFY_COMPANY_MAX_QUERY_TERMS = 2
 
 const LINKEDIN_COMPANY_SIZES = new Set([
   '1-10',
@@ -194,22 +199,67 @@ function quoted(value: string): string {
   return value.includes(' ') ? `"${value.replace(/"/g, '')}"` : value.replace(/"/g, '')
 }
 
-export function buildApifyCompanySearchInput(plan: SourceSearchPlan): Record<string, unknown> {
+/*
+ * The search queries a batch tries, in order (2026-09-25). LinkedIn's company
+ * search matches words in a company's own name and page, so it returns
+ * nothing for SIGNAL phrases the analyst writes for other lanes ("commercial
+ * building permit", "mechanics lien", "SAM.gov Ohio NAICS 238"): 11 of 12
+ * Launch Pad firmographic runs came back empty on exactly those. Search
+ * breadth and qualification precision stay separate contracts (exact
+ * company_keywords/exclusions still decide fit); this only decides where the
+ * search starts and what it falls back to:
+ *   1. source_search_keywords (the analyst's broad provider terms), then
+ *   2. company_keywords (what the companies call themselves), then
+ *   3. the first industry (the broadest honest term).
+ * Duplicates collapse, so a play with only one list tries it once.
+ */
+export function companySearchQueries(plan: SourceSearchPlan): string[] {
   const query = plan.provider_query ?? {}
-  // Search breadth and qualification precision are separate contracts. A
-  // broad provider term such as "dental" can find the candidate universe,
-  // while exact company_keywords/exclusions decide whether each returned row
-  // is actually a dental practice rather than a lab, consultant or vendor.
-  const searchKeywords = stringArray(query.source_search_keywords, 5)
-  const keywords = searchKeywords.length > 0
-    ? searchKeywords
-    : stringArray(query.company_keywords, 5)
-  const industries = stringArray(query.industries, 5)
-  const terms = keywords.length > 0 ? keywords : industries
-  const searchQuery = trimQuery(
-    terms.length > 0 ? terms.map(quoted).join(' OR ') : plan.query,
-  )
-  const locations = stringArray(query.locations, 20)
+  // At most two terms per query: in live probes (2026-09-25) a single term
+  // or a two-term OR returned rows, while three- and four-term OR chains came
+  // back empty for the same audience and places.
+  const join = (terms: string[]) => trimQuery(terms.map(quoted).join(' OR '))
+  const ladder = [
+    stringArray(query.source_search_keywords, APIFY_COMPANY_MAX_QUERY_TERMS),
+    stringArray(query.company_keywords, APIFY_COMPANY_MAX_QUERY_TERMS),
+    stringArray(query.industries, 1),
+  ].filter((terms) => terms.length > 0).map(join)
+  if (ladder.length === 0 && plan.query) ladder.push(trimQuery(plan.query))
+  return [...new Set(ladder.filter(Boolean))].slice(0, APIFY_COMPANY_MAX_QUERY_ATTEMPTS)
+}
+
+/* LinkedIn's location filter resolves cities, states and countries. A county
+ * ("Arapahoe County, Colorado") or a region ("Colorado Front Range", "Denver
+ * metro") does not resolve, and one unresolvable entry emptied the whole
+ * search in probes. Those entries are replaced by their state when one is
+ * named after the comma, or by a known state name inside them; cities,
+ * states and countries pass through unchanged. If nothing resolvable is
+ * left the original list is kept, so a search is never widened to the
+ * whole country. */
+const REGION_WORDS = /\b(county|parish|front range|metro|metropolitan|region|greater|area)\b/i
+const US_STATES = ['Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming']
+export function companySearchLocations(values: string[]): string[] {
+  const out: string[] = []
+  for (const value of values) {
+    if (!REGION_WORDS.test(value)) {
+      out.push(value)
+      continue
+    }
+    const afterComma = value.includes(',') ? value.slice(value.lastIndexOf(',') + 1).trim() : ''
+    const named = US_STATES.find((state) => afterComma.toLowerCase() === state.toLowerCase())
+      ?? US_STATES.slice().sort((a, b) => b.length - a.length).find((state) => new RegExp(`\\b${state}\\b`, 'i').test(value))
+    if (named) out.push(named)
+  }
+  // Never widen a located search to the whole country: when nothing
+  // resolvable is left, keep what the play asked for.
+  return out.length > 0 ? [...new Set(out)] : values
+}
+
+export function buildApifyCompanySearchInput(plan: SourceSearchPlan, attempt = 0): Record<string, unknown> {
+  const query = plan.provider_query ?? {}
+  const queries = companySearchQueries(plan)
+  const searchQuery = queries[Math.min(Math.max(0, attempt), Math.max(0, queries.length - 1))] ?? ''
+  const locations = companySearchLocations(stringArray(query.locations, 20))
   const companySize = stringArray(query.employee_ranges, 8)
     .map((value) => value.replace(/\s*(?:employees?|people|staff)\s*/gi, '').trim())
     .filter((value) => LINKEDIN_COMPANY_SIZES.has(value))
@@ -482,12 +532,12 @@ export function createApifyCompanySourceAdapter(
       ))
       return {
         max_candidates: maxCandidates,
-        provider_units: maxCandidates > 0 ? maxCandidates + APIFY_COMPANY_START_UNITS : 0,
+        provider_units: maxCandidates > 0 ? maxCandidates + APIFY_COMPANY_START_UNITS * APIFY_COMPANY_MAX_QUERY_ATTEMPTS : 0,
         billable_unit: descriptor.cost_model.unit,
         expected_candidates: { low: 0, high: maxCandidates, basis: 'provider_quote' },
         quoted_credits_per_unit: descriptor.cost_model.quoted_credits_per_unit,
         estimated_credits_before_markup:
-          (maxCandidates > 0 ? maxCandidates + APIFY_COMPANY_START_UNITS : 0) *
+          (maxCandidates > 0 ? maxCandidates + APIFY_COMPANY_START_UNITS * APIFY_COMPANY_MAX_QUERY_ATTEMPTS : 0) *
           descriptor.cost_model.quoted_credits_per_unit,
       }
     },
@@ -511,26 +561,43 @@ export function createApifyCompanySourceAdapter(
       if (!apifyCompanySourceApproved(env)) {
         return refusal(actorId, attemptedAt, 'provider_disabled: company-source terms or price version is unapproved')
       }
-      const input = buildApifyCompanySearchInput(plan)
-      const cap = input.maxItems as number
-      if (!(input.searchQuery as string)) {
+      const queries = companySearchQueries(plan)
+      if (queries.length === 0) {
         return refusal(actorId, attemptedAt, 'bad_request: a bounded company search query is required')
       }
-      const maxChargeUsd = resolveMaxChargeUsd(env, {
-        maxItems: cap,
-        planBudgetUsd: plan.max_charge_usd,
-      })
-      const outcome = await runActor(actorId, input, {
-        token,
-        build: APIFY_COMPANY_SOURCE_BUILD,
-        timeoutMs: timeoutMs(env),
-        maxItems: cap,
-        maxChargeUsd,
-        now,
-      })
-      const providerReceipt = (extras: Record<string, unknown> = {}) => receipt(outcome, {
+      // Each attempt is one actor call; an empty one is billed one start
+      // event and the next query is tried. The first call that returns rows,
+      // errors or is ambiguous ends the ladder.
+      const tried: Array<{ query: string; outcome: string; item_count: number }> = []
+      let emptyStarts = 0
+      let outcome: ApifyRunOutcome | null = null
+      let cap = 0
+      let maxChargeUsd = 0
+      for (let attempt = 0; attempt < queries.length; attempt += 1) {
+        const input = buildApifyCompanySearchInput(plan, attempt)
+        cap = input.maxItems as number
+        maxChargeUsd = resolveMaxChargeUsd(env, {
+          maxItems: cap,
+          planBudgetUsd: plan.max_charge_usd,
+        })
+        outcome = await runActor(actorId, input, {
+          token,
+          build: APIFY_COMPANY_SOURCE_BUILD,
+          timeoutMs: timeoutMs(env),
+          maxItems: cap,
+          maxChargeUsd,
+          now,
+        })
+        tried.push({ query: input.searchQuery as string, outcome: outcome.status, item_count: outcome.itemCount })
+        if (outcome.status !== 'no_result') break
+        emptyStarts += 1
+      }
+      if (!outcome) return refusal(actorId, attemptedAt, 'bad_request: a bounded company search query is required')
+      const priorStartUnits = APIFY_COMPANY_START_UNITS * (outcome.status === 'no_result' ? emptyStarts - 1 : emptyStarts)
+      const providerReceipt = (extras: Record<string, unknown> = {}) => receipt(outcome!, {
         max_charge_usd: maxChargeUsd,
         scraper_mode: 'full',
+        query_attempts: tried,
         ...extras,
       })
       if (outcome.status === 'ambiguous') {
@@ -546,8 +613,9 @@ export function createApifyCompanySourceAdapter(
         return {
           status: 'error',
           data: null,
-          receipt: providerReceipt(),
-          cost_units: 0,
+          receipt: providerReceipt({ empty_attempts_billed: emptyStarts }),
+          // Earlier empty attempts each billed their start event.
+          cost_units: priorStartUnits,
           error: outcome.error ?? 'provider error',
         }
       }
@@ -555,8 +623,8 @@ export function createApifyCompanySourceAdapter(
         return {
           status: 'no_result',
           data: null,
-          receipt: providerReceipt({ actor_start_billed: true }),
-          cost_units: APIFY_COMPANY_START_UNITS,
+          receipt: providerReceipt({ actor_start_billed: true, empty_attempts_billed: emptyStarts }),
+          cost_units: APIFY_COMPANY_START_UNITS * emptyStarts,
         }
       }
       const candidates = outcome.items
@@ -587,8 +655,9 @@ export function createApifyCompanySourceAdapter(
           parser_dropped_rows: Math.max(0, outcome.itemCount - candidates.length),
           actor_start_billed: true,
         }),
-        // Actor invoices every returned full-company row plus one fixed start.
-        cost_units: outcome.itemCount + APIFY_COMPANY_START_UNITS,
+        // Actor invoices every returned full-company row plus one fixed start,
+        // plus one start for each empty attempt before this one.
+        cost_units: outcome.itemCount + APIFY_COMPANY_START_UNITS + priorStartUnits,
       }
     },
   }

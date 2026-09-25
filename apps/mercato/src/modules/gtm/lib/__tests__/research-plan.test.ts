@@ -920,16 +920,17 @@ describe('buildSourcePlan pricing and limits', () => {
       expect(plan.adapterPlan).toEqual([
         expect.objectContaining({
           adapter_id: 'apify-linkedin-company-search',
-          providerUnits: 10.25,
+          // Ten results plus a start event for each of three query attempts.
+          providerUnits: 10.75,
           billableUnit: 'full_company',
           maxCandidates: 10,
-          estimatedCredits: 20_500,
+          estimatedCredits: 21_500,
           priceVersion: APIFY_COMPANY_REQUIRED_PRICE_VERSION,
           providerQuery: play.providerQuery,
         }),
       ])
-      expect(plan.estimatedCredits).toBe(20_500)
-      expect(plan.limits.maxCredits).toBe(20_500)
+      expect(plan.estimatedCredits).toBe(21_500)
+      expect(plan.limits.maxCredits).toBe(21_500)
       expect(plan.planHash).toMatch(/^[a-f0-9]{64}$/)
     }
   })
