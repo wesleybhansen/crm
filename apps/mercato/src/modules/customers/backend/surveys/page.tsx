@@ -61,6 +61,10 @@ function Sparkline({ data, className = '' }: { data: number[]; className?: strin
   )
 }
 
+function pluralize(count: number, noun: string): string {
+  return `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`
+}
+
 // Weekly counts (oldest -> newest) derived client-side from rows already in memory.
 function weeklyCounts(dates: Array<string | null | undefined>, weeks = 8): number[] {
   const now = Date.now()
@@ -80,12 +84,13 @@ function StatTile({ icon: Icon, label, value, color, series }: {
 }) {
   const c = STAT_COLORS[color]
   return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className={`size-9 rounded-lg flex items-center justify-center ${c.tile}`}>
+    <div className="rounded-xl border bg-card p-3 sm:p-4 min-w-0">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className={`size-9 shrink-0 rounded-lg flex items-center justify-center ${c.tile}`}>
           <Icon className={`size-4 ${c.icon}`} />
         </div>
-        {series && series.length > 0 && <Sparkline data={series} className={`${c.icon} opacity-90`} />}
+        {/* Narrow tiles (phone) have no room beside the icon, so the trend line only shows from sm up. */}
+        {series && series.length > 0 && <Sparkline data={series} className={`hidden sm:block ${c.icon} opacity-90`} />}
       </div>
       <p className="text-2xl font-bold tabular-nums tracking-tight">{value.toLocaleString()}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
@@ -387,7 +392,7 @@ export default function SurveysPage() {
               <ArrowLeft className="size-4" /> Back to Surveys
             </button>
             <h1 className="text-xl font-semibold">{selectedSurvey.title}</h1>
-            <p className="text-sm text-muted-foreground">{responsesData?.totalResponses ?? 0} responses</p>
+            <p className="text-sm text-muted-foreground">{pluralize(responsesData?.totalResponses ?? 0, 'response')}</p>
           </div>
           {responsesData && responsesData.totalResponses > 0 && (
             <Button type="button" variant="outline" size="sm" onClick={exportCsv}>
@@ -415,10 +420,10 @@ export default function SurveysPage() {
                 return (
                   <div key={field.id} className="border rounded-xl p-5 bg-card">
                     <h3 className="font-medium text-sm mb-1">{field.label}</h3>
-                    <p className="text-xs text-muted-foreground mb-3">{stat.count} responses</p>
+                    <p className="text-xs text-muted-foreground mb-3">{pluralize(stat.count, 'response')}</p>
                     {stat.type === 'numeric' && (
                       <div>
-                        <div className="text-3xl font-bold tracking-tight">{stat.average}<span className="text-sm font-normal text-muted-foreground ml-1">avg</span></div>
+                        <div className="text-3xl font-bold tracking-tight">{stat.average}{' '}<span className="text-sm font-normal text-muted-foreground">avg</span></div>
                       </div>
                     )}
                     {(stat.type === 'choice' || stat.type === 'multi_choice') && stat.counts && (
@@ -600,18 +605,18 @@ export default function SurveysPage() {
                 const Icon = fieldTypeIcon(field.type)
                 return (
                   <div key={field.id} className="border rounded-xl bg-card overflow-hidden">
-                    <div className="flex items-center gap-3 p-4">
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 p-4">
                       <div className="flex flex-col gap-0.5">
-                        <button type="button" onClick={() => moveField(index, -1)} disabled={index === 0}
+                        <button type="button" onClick={() => moveField(index, -1)} disabled={index === 0} aria-label="Move question up"
                           className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20"><ChevronUp className="size-3.5" /></button>
-                        <button type="button" onClick={() => moveField(index, 1)} disabled={index === fields.length - 1}
+                        <button type="button" onClick={() => moveField(index, 1)} disabled={index === fields.length - 1} aria-label="Move question down"
                           className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20"><ChevronDown className="size-3.5" /></button>
                       </div>
                       <div className="size-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
                         <Icon className="size-4 text-muted-foreground" />
                       </div>
                       <Input value={field.label} onChange={e => updateField(index, { label: e.target.value })}
-                        className="flex-1 text-sm" placeholder="Question text" />
+                        className="flex-1 min-w-[10rem] text-sm" placeholder="Question text" />
                       <select value={field.type} onChange={e => updateField(index, { type: e.target.value })}
                         className="h-9 rounded-lg border bg-background px-2.5 text-xs w-32">
                         {FIELD_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
@@ -620,7 +625,7 @@ export default function SurveysPage() {
                         <input type="checkbox" checked={field.required || false} onChange={e => updateField(index, { required: e.target.checked })} className="rounded" />
                         Required
                       </label>
-                      <IconButton variant="ghost" size="sm" type="button" onClick={() => removeField(index)} title="Remove">
+                      <IconButton variant="ghost" size="sm" className="size-10 sm:size-7" type="button" onClick={() => removeField(index)} title="Remove question" aria-label="Remove question">
                         <X className="size-4 text-muted-foreground hover:text-destructive" />
                       </IconButton>
                     </div>
@@ -637,7 +642,7 @@ export default function SurveysPage() {
                               }} className="flex-1 h-7 text-xs" placeholder={`Option ${oi + 1}`} />
                               <button type="button" onClick={() => {
                                 const u = [...fields]; u[index] = { ...u[index], options: (u[index].options || []).filter((_, j) => j !== oi) }; setFields(u)
-                              }} className="p-0.5 text-muted-foreground hover:text-destructive"><X className="size-3" /></button>
+                              }} aria-label={`Remove option ${oi + 1}`} className="p-0.5 text-muted-foreground hover:text-destructive"><X className="size-3" /></button>
                             </div>
                           ))}
                           <button type="button" onClick={() => {
@@ -673,53 +678,55 @@ export default function SurveysPage() {
   function renderSurveyCard(survey: Survey, isInactive?: boolean, idx = 0) {
     const cc = STAT_COLORS[CARD_COLORS[idx % CARD_COLORS.length]]
     return (
-      <div key={survey.id} className={`bg-card rounded-xl border p-5 transition-colors ${isInactive ? 'opacity-70' : 'hover:border-accent/30'}`}>
-        <div className="flex items-center gap-4">
+      <div key={survey.id} className={`bg-card rounded-xl border p-4 sm:p-5 transition-colors ${isInactive ? 'opacity-70' : 'hover:border-accent/30'}`}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
           <div className={`size-11 rounded-lg flex items-center justify-center shrink-0 ${isInactive ? 'bg-muted' : cc.tile}`}>
             <ClipboardList className={`size-5 ${isInactive ? 'text-muted-foreground' : cc.icon}`} />
           </div>
           <div className="flex-1 min-w-0 cursor-pointer" onClick={() => editSurvey(survey)}>
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold truncate">{survey.title}</h3>
+            <div className="flex items-center gap-2 mb-1 min-w-0">
+              <h3 className="font-semibold truncate min-w-0">{survey.title}</h3>
               {!isInactive && (
                 <Badge variant="green">Active</Badge>
               )}
             </div>
             {survey.description && <p className="text-xs text-muted-foreground line-clamp-1">{survey.description}</p>}
-            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><BarChart3 className="size-3" /> {survey.response_count} responses</span>
-              <span>{parseFields(survey.fields).length} questions</span>
-              <span>Created {new Date(survey.created_at).toLocaleDateString()}</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1 whitespace-nowrap"><BarChart3 className="size-3" /> {pluralize(survey.response_count || 0, 'response')}</span>
+              <span className="whitespace-nowrap">{pluralize(parseFields(survey.fields).length, 'question')}</span>
+              <span className="whitespace-nowrap">Created {new Date(survey.created_at).toLocaleDateString()}</span>
             </div>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <IconButton variant="ghost" size="sm" type="button" title="Send via email" onClick={() => openSendSurvey(survey.id)}>
+          </div>
+          <div className="flex flex-wrap items-center gap-1 sm:flex-nowrap sm:shrink-0">
+            <IconButton variant="ghost" size="sm" className="size-10 sm:size-7" type="button" title="Send via email" aria-label={`Send via email ${survey.title}`} onClick={() => openSendSurvey(survey.id)}>
               <Send className="size-4" />
             </IconButton>
-            <IconButton variant="ghost" size="sm" type="button" title="Copy link" onClick={() => copyLink(survey)}>
+            <IconButton variant="ghost" size="sm" className="size-10 sm:size-7" type="button" title="Copy link" aria-label={`Copy link ${survey.title}`} onClick={() => copyLink(survey)}>
               {copied === survey.id ? <Check className="size-4 text-[#047857] dark:text-[#34d399]" /> : <Copy className="size-4" />}
             </IconButton>
-            <IconButton variant="ghost" size="sm" type="button" title="Preview" onClick={() => window.open(`/api/surveys/public/${survey.slug}`, '_blank')}>
+            <IconButton variant="ghost" size="sm" className="size-10 sm:size-7" type="button" title="Preview" aria-label={`Preview ${survey.title}`} onClick={() => window.open(`/api/surveys/public/${survey.slug}`, '_blank')}>
               <ExternalLink className="size-4" />
             </IconButton>
-            <IconButton variant="ghost" size="sm" type="button" title="Embed" onClick={() => setEmbedSurveyId(embedSurveyId === survey.id ? null : survey.id)}>
+            <IconButton variant="ghost" size="sm" className="size-10 sm:size-7" type="button" title="Embed" aria-label={`Embed ${survey.title}`} onClick={() => setEmbedSurveyId(embedSurveyId === survey.id ? null : survey.id)}>
               <Code className="size-4" />
             </IconButton>
-            <IconButton variant="ghost" size="sm" type="button" title="Responses" onClick={() => viewResponses(survey)}>
+            <IconButton variant="ghost" size="sm" className="size-10 sm:size-7" type="button" title="Responses" aria-label={`Responses ${survey.title}`} onClick={() => viewResponses(survey)}>
               <BarChart3 className="size-4" />
             </IconButton>
             {isInactive ? (
-              <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={() => toggleActive(survey)}>Reactivate</Button>
+              <Button type="button" variant="ghost" size="sm" className="h-10 sm:h-8 text-xs" onClick={() => toggleActive(survey)}>Reactivate</Button>
             ) : (
-              <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={() => toggleActive(survey)}>Deactivate</Button>
+              <Button type="button" variant="ghost" size="sm" className="h-10 sm:h-8 text-xs" onClick={() => toggleActive(survey)}>Deactivate</Button>
             )}
-            <IconButton variant="ghost" size="sm" type="button" title="Delete" onClick={() => deleteSurvey(survey)}>
+            <IconButton variant="ghost" size="sm" className="size-10 sm:size-7" type="button" title="Delete" aria-label={`Delete ${survey.title}`} onClick={() => deleteSurvey(survey)}>
               <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
             </IconButton>
           </div>
         </div>
         {embedSurveyId === survey.id && (
-          <div className="mt-3 p-3 bg-muted/50 rounded-lg ml-15">
+          <div className="mt-3 p-3 bg-muted/50 rounded-lg sm:ml-15">
             <p className="text-xs font-medium mb-1.5">Embed code:</p>
             <code className="block text-xs bg-background p-2.5 rounded-lg border break-all select-all font-mono">
               {`<iframe src="${typeof window !== 'undefined' ? window.location.origin : ''}/api/surveys/public/${survey.slug}" width="100%" height="600" frameborder="0"></iframe>`}
@@ -743,7 +750,7 @@ export default function SurveysPage() {
       </div>
 
       {!loading && surveys.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
           <StatTile icon={ClipboardList} label="Surveys" value={surveys.length} color="violet" series={surveysWeekly} />
           <StatTile icon={Check} label="Active" value={activeSurveys.length} color="green" />
           <StatTile icon={BarChart3} label="Responses" value={totalResponses} color="blue" />
@@ -806,7 +813,7 @@ export default function SurveysPage() {
                   <h3 className="font-semibold">Send Survey via Email</h3>
                   <p className="text-xs text-muted-foreground mt-0.5">A survey link and CTA button will be included automatically below your message.</p>
                 </div>
-                <IconButton variant="ghost" size="sm" type="button" onClick={() => setSendSurveyId(null)}><X className="size-4" /></IconButton>
+                <IconButton variant="ghost" size="sm" type="button" aria-label="Close" onClick={() => setSendSurveyId(null)}><X className="size-4" /></IconButton>
               </div>
               <div className="space-y-3">
                 {/* Recipient with contact search */}
@@ -822,7 +829,7 @@ export default function SurveysPage() {
                           {sendName && <p className="text-sm font-medium truncate">{sendName}</p>}
                           <p className={`text-${sendName ? '[11px]' : 'sm'} text-muted-foreground truncate`}>{sendEmail}</p>
                         </div>
-                        <button type="button" onClick={() => { setSendEmail(''); setSendName(''); setRecipientSearch('') }} className="text-muted-foreground hover:text-foreground">
+                        <button type="button" aria-label="Clear recipient" onClick={() => { setSendEmail(''); setSendName(''); setRecipientSearch('') }} className="text-muted-foreground hover:text-foreground">
                           <X className="size-3.5" />
                         </button>
                       </div>

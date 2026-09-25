@@ -111,7 +111,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="date"],
     textarea, select {
       width: 100%; padding: 0.75rem 0.875rem; border: 1.5px solid #e2e8f0; border-radius: 10px;
-      font-size: 0.9375rem; font-family: inherit; color: #1e293b; background: #fff;
+      font-size: 1rem; font-family: inherit; color: #1e293b; background: #fff;
       transition: border-color 0.2s, box-shadow 0.2s; outline: none;
     }
     input::placeholder, textarea::placeholder { color: #94a3b8; }
@@ -164,7 +164,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       body { padding: 1rem 0.75rem; }
       .card { padding: 1.75rem 1.25rem; border-radius: 12px; }
       h1 { font-size: 1.375rem; }
-      .nps-btn { width: 36px; height: 36px; font-size: 0.8rem; }
+      /* Two even rows of 40px+ tap targets (0 to 5, 6 to 10) instead of a ragged wrap. */
+      .nps-row { display: grid; grid-template-columns: repeat(6, minmax(40px, 1fr)); }
+      .nps-btn { width: 100%; min-width: 40px; height: 44px; }
     }
   </style>
 </head>
