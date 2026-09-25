@@ -156,8 +156,16 @@ export default function ContactsPage() {
   // ?import=1 so it opens straight into the same paste-a-CSV flow the
   // welcome wizard uses, instead of landing on an empty list.
   useEffect(() => {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('import') === '1') {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('import') === '1') {
       setShowImport(true)
+    }
+    // /backend/todos redirects here with ?tab=tasks (QA 2026-09-25 #12).
+    const initialTab = params.get('tab')
+    if (initialTab === 'tasks' || initialTab === 'companies') {
+      setTab(initialTab)
+      if (initialTab === 'tasks') loadAllTasks()
     }
   }, [])
 

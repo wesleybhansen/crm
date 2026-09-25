@@ -14,6 +14,10 @@ export type LegacyRedirect = { source: string; destination: string; permanent: b
 
 export const INTEGRATIONS_HOME = '/backend/settings-simple'
 export const PRODUCTS_HOME = '/backend/payments'
+/** Tasks live on the Contacts page's Tasks tab; there is no /backend/todos page. */
+export const TASKS_HOME = '/backend/contacts?tab=tasks'
+/** Import is a pop-up on the Contacts page; ?import=1 opens it. */
+export const CONTACT_IMPORT_HOME = '/backend/contacts?import=1'
 
 export function legacyBackendRedirects(): LegacyRedirect[] {
   return [
@@ -21,5 +25,9 @@ export function legacyBackendRedirects(): LegacyRedirect[] {
     { source: '/backend/integrations/:path*', destination: INTEGRATIONS_HOME, permanent: false },
     { source: '/backend/products', destination: PRODUCTS_HOME, permanent: false },
     { source: '/backend/products/:path*', destination: PRODUCTS_HOME, permanent: false },
+    // QA 2026-09-25 #12/#13: /backend/todos 404'd, and people/import was
+    // read as a person id ("Invalid person id").
+    { source: '/backend/todos', destination: TASKS_HOME, permanent: false },
+    { source: '/backend/customers/people/import', destination: CONTACT_IMPORT_HOME, permanent: false },
   ]
 }
