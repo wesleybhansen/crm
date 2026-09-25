@@ -18,6 +18,7 @@ import {
   CalendarCheck, AlertCircle, ChevronDown, Repeat,
   Mail, User,
 } from 'lucide-react'
+import { isBlockedCalendarEntry } from '../../lib/booking-status'
 
 // ---------- localizer ----------
 const localizer = dateFnsLocalizer({
@@ -911,8 +912,16 @@ export default function CalendarPage() {
   }
 
   async function handleEventAction(eventId: string, action: 'confirm' | 'cancel', eventResource?: UnifiedEvent) {
+    // A focus-time or personal-time block has no attendees: cancelling it
+    // removes it, the same as Delete in the event popover.
+    if (action === 'cancel' && isBlockedCalendarEntry(eventResource)) {
+      if (!window.confirm('Remove this blocked time from your calendar?')) return
+      await handleDeleteRecurring(eventId, false)
+      return
+    }
     if (action === 'cancel') {
-      if (!window.confirm('Cancel this event? Attendees will be notified.')) return
+      const hasGuest = !!eventResource?.guestEmail && eventResource.guestEmail !== 'blocked@internal.local'
+      if (!window.confirm(hasGuest ? 'Cancel this event? You can send the guest a cancellation email next.' : 'Cancel this event?')) return
     }
     try {
       const newStatus = action === 'cancel' ? 'cancelled' : 'confirmed'
@@ -921,9 +930,13 @@ export default function CalendarPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: eventId, status: newStatus }),
       })
-      const data = await res.json()
-      if (!data.ok) {
-        console.error(`[calendar.${action}] PUT failed:`, data.error)
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        console.error(`[calendar.${action}] PUT failed:`, data?.error ?? res.status)
+        alert(action === 'cancel'
+          ? `Could not cancel this event${data?.error ? `: ${data.error}` : '. Please try again.'}`
+          : `Could not confirm this event${data?.error ? `: ${data.error}` : '. Please try again.'}`)
+        return
       }
 
       // If cancelling and guest has email, offer cancellation email
@@ -944,6 +957,7 @@ export default function CalendarPage() {
       if (tab === 'upcoming') loadUpcomingEvents()
     } catch (err) {
       console.error(`[calendar.${action}] Error:`, err)
+      alert(action === 'cancel' ? 'Could not cancel this event. Check your connection and try again.' : 'Could not confirm this event. Check your connection and try again.')
     }
   }
 
@@ -972,9 +986,11 @@ export default function CalendarPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: eventId, deleteSeries }),
       })
-      const data = await res.json()
-      if (!data.ok) {
-        console.error('[calendar.deleteRecurring] DELETE failed:', data.error)
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.ok) {
+        console.error('[calendar.deleteRecurring] DELETE failed:', data?.error ?? res.status)
+        alert(`Could not delete this event${data?.error && data.error !== 'Failed' ? `: ${data.error}` : '. Please try again.'}`)
+        return
       }
       setShowRecurringDeleteModal(null)
       setSelectedEvent(null)
@@ -982,6 +998,7 @@ export default function CalendarPage() {
       if (tab === 'upcoming') loadUpcomingEvents()
     } catch (err) {
       console.error('[calendar.deleteRecurring] Error:', err)
+      alert('Could not delete this event. Check your connection and try again.')
     }
   }
 
@@ -1222,13 +1239,14 @@ export default function CalendarPage() {
   // =============================================
 
   return (
-    <div className="flex h-[calc(100vh-52px)] flex-col bg-background">
+    <div className="flex h-[calc(100vh-52px)] w-full min-w-0 flex-col bg-background">
       <style dangerouslySetInnerHTML={{ __html: CALENDAR_STYLES }} />
 
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b bg-card px-5 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-0.5 rounded-lg border bg-muted/30 p-0.5">
+      {/* Header bar: on a phone the tab icons and the New Event label drop so
+          everything fits in 390px without sideways scrolling. */}
+      <div className="flex items-center justify-between gap-2 border-b bg-card px-3 py-3 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-0.5 rounded-lg border bg-muted/30 p-0.5">
             {TABS.map(t => {
               const Icon = t.icon
               return (
@@ -1236,20 +1254,20 @@ export default function CalendarPage() {
                   key={t.id}
                   type="button"
                   onClick={() => { setTab(t.id); setShowNewEvent(false) }}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                  className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium transition-all sm:px-3 ${
                     tab === t.id && !showNewEvent
                       ? 'bg-foreground text-background shadow-sm'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
                 >
-                  <Icon className="size-3.5" />
+                  <Icon className="hidden size-3.5 sm:block" />
                   {t.label}
                 </button>
               )
             })}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {loadingEvents && tab === 'calendar' && !showNewEvent && (
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
           )}
@@ -1257,10 +1275,11 @@ export default function CalendarPage() {
             type="button"
             size="sm"
             onClick={() => { setShowNewEvent(true); setTab('calendar') }}
-            className="h-8 gap-1.5 rounded-lg bg-blue-600 px-4 text-xs font-semibold text-white shadow-sm hover:bg-blue-700"
+            aria-label="New Event"
+            className="h-8 gap-1.5 rounded-lg bg-blue-600 px-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 sm:px-4"
           >
             <Plus className="size-3.5" />
-            New Event
+            <span className="hidden sm:inline">New Event</span>
           </Button>
         </div>
       </div>
@@ -1272,7 +1291,7 @@ export default function CalendarPage() {
         {tab === 'calendar' && !showNewEvent && (
           <div className="flex h-full flex-col">
             {/* Monday.com-inspired Toolbar */}
-            <div className="flex items-center justify-between border-b border-border/60 bg-card px-5 py-2">
+            <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-card px-3 py-2 sm:px-5">
               {/* Left: Today button */}
               <div className="flex items-center">
                 <button
@@ -1285,22 +1304,22 @@ export default function CalendarPage() {
               </div>
 
               {/* Center: < Month Year > */}
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-1 sm:gap-2">
                 <button
                   type="button"
                   onClick={() => setCurrentDate(prev => navigateDate(prev, 'prev', calView))}
-                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
                   aria-label="Previous"
                 >
                   <ChevronLeft className="size-4" />
                 </button>
-                <span className="min-w-[140px] text-center text-sm font-semibold tracking-tight">
+                <span className="min-w-0 truncate whitespace-nowrap text-center text-sm font-semibold tracking-tight sm:min-w-[140px]">
                   {format(currentDate, calView === 'day' ? 'MMMM d, yyyy' : 'MMMM yyyy')}
                 </span>
                 <button
                   type="button"
                   onClick={() => setCurrentDate(prev => navigateDate(prev, 'next', calView))}
-                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
                   aria-label="Next"
                 >
                   <ChevronRight className="size-4" />
@@ -1308,7 +1327,7 @@ export default function CalendarPage() {
               </div>
 
               {/* Right: View dropdown */}
-              <div className="relative" ref={viewDropdownRef}>
+              <div className="relative shrink-0" ref={viewDropdownRef}>
                 <button
                   type="button"
                   onClick={() => setShowViewDropdown(prev => !prev)}
@@ -1724,7 +1743,7 @@ export default function CalendarPage() {
                                       onClick={() => handleEventAction(ev.resource.id, 'cancel', ev.resource)}
                                       className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium text-[#b91c1c] dark:text-[#f87171] transition hover:bg-[rgba(239,68,68,.06)] dark:hover:bg-[rgba(239,68,68,.08)]"
                                     >
-                                      Cancel
+                                      {isBlockedCalendarEntry(ev.resource) ? 'Remove' : 'Cancel'}
                                     </button>
                                     <button
                                       type="button"
@@ -1775,15 +1794,18 @@ export default function CalendarPage() {
                       {(Object.entries(EVENT_TYPE_META) as [EventType, (typeof EVENT_TYPE_META)[string]][]).map(([key, meta]) => {
                         const MtIcon = meta.icon
                         const isSelected = newEventType === key
+                        // No background transition: with transition-all the previously
+                        // selected type faded out slowly and still looked selected.
                         return (
                           <button
                             key={key}
                             type="button"
+                            aria-pressed={isSelected}
                             onClick={() => { setNewEventType(key); setNewLocation(''); setCustomTypeName('') }}
-                            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all ${
+                            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold ${
                               isSelected
-                                ? 'text-white shadow-sm'
-                                : 'border bg-card text-muted-foreground hover:border-foreground/20 hover:text-foreground'
+                                ? 'border-transparent text-white shadow-sm'
+                                : 'bg-card text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground'
                             }`}
                             style={isSelected ? { backgroundColor: meta.color } : undefined}
                           >
