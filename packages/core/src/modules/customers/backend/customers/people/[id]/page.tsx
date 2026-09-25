@@ -648,7 +648,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   
     return (
       <Page>
-        <PageBody className="space-y-8">
+        {/* Phone: room under the last row for the floating assistant button. */}
+        <PageBody className="space-y-8 max-md:pb-24">
           <PersonHighlights
             person={person}
             profile={profile}

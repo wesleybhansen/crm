@@ -724,7 +724,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
 
   return (
     <Page>
-      <PageBody>
+      <PageBody className="max-md:pb-24">
         <div className="space-y-8">
           <CompanyHighlights
             company={company}
