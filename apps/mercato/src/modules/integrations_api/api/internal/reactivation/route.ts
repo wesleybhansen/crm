@@ -299,27 +299,25 @@ async function opApprove(knex: Knex, auth: Auth, body: Row) {
   const approvalId = typeof body.approvalId === 'string' ? body.approvalId.slice(0, 80) : null
   const exclude = Array.isArray(body.excludeActionIds) ? body.excludeActionIds.filter(isUuid) : []
   const now = new Date()
-  // A note that fails the fair-housing screen (flagged at draft time, or
-  // failing a re-check now) is never approved: it is dismissed with the reason
-  // so it cannot be sent and does not hold its contact forever.
+  // Each note is screened as it reads NOW. One that fails is held: it stays
+  // pending (never approved, never sent) with the reason, so the owner can
+  // edit it and approve again, or decline it. It used to be dismissed, so a
+  // false positive ("bachelor's degree") cost the owner the draft for good
+  // (2026-09-25 review, M9). A draft-time flag on a note the owner has since
+  // edited clean no longer blocks it.
   let pendingQuery = reactivationActions(knex, auth).whereRaw(`metadata->>'initiative_id' = ?`, [initiativeId]).where('status', 'pending')
   if (exclude.length) pendingQuery = pendingQuery.whereNotIn('id', exclude)
   const pending = (await pendingQuery.select('id', 'payload', 'metadata')) as Row[]
-  const blocked: Array<{ actionId: string; reason: string; advisory: string }> = []
+  const blocked: Array<{ actionId: string; reason: string; advisory: string; editable: true }> = []
   for (const row of pending) {
     const payload = parseJson(row.payload)
-    const meta = parseJson(row.metadata)
     const screen = screenReactivationDraft(payload, typeof payload.toName === 'string' ? payload.toName : null)
-    const flaggedAtDraft = meta.fair_housing && (meta.fair_housing as Row).blocked === true
-    if (screen.ok && !flaggedAtDraft) continue
-    const advisory = !screen.ok ? screen.advisory : String((meta.fair_housing as Row).advisory || 'Fair Housing review needed.')
+    if (screen.ok) continue
     await reactivationActions(knex, auth).where('id', row.id).where('status', 'pending').update({
-      status: 'dismissed',
-      execution_error: FAIR_HOUSING_REASON,
-      metadata: knex.raw(`metadata || ?::jsonb`, [JSON.stringify({ fair_housing: { ok: false, blocked: true, advisory } })]),
+      metadata: knex.raw(`metadata || ?::jsonb`, [JSON.stringify({ fair_housing: { ok: false, blocked: true, advisory: screen.advisory } })]),
       updated_at: now,
     })
-    blocked.push({ actionId: String(row.id), reason: FAIR_HOUSING_REASON, advisory })
+    blocked.push({ actionId: String(row.id), reason: FAIR_HOUSING_REASON, advisory: screen.advisory, editable: true })
   }
   const blockedIds = blocked.map((b) => b.actionId)
   let query = reactivationActions(knex, auth).whereRaw(`metadata->>'initiative_id' = ?`, [initiativeId]).where('status', 'pending')
@@ -327,7 +325,8 @@ async function opApprove(knex: Knex, auth: Auth, body: Row) {
   if (blockedIds.length) query = query.whereNotIn('id', blockedIds)
   const approved = await query.update({
     status: 'approved',
-    metadata: knex.raw(`metadata || ?::jsonb`, [JSON.stringify({ approval_id: approvalId, approved_at: now.toISOString() })]),
+    // Every note approved here passed the screen as it reads now.
+    metadata: knex.raw(`metadata || ?::jsonb`, [JSON.stringify({ approval_id: approvalId, approved_at: now.toISOString(), fair_housing: { ok: true } })]),
     updated_at: now,
   })
   if (exclude.length) {

@@ -14,6 +14,7 @@ import {
   type GtmDraftModel,
 } from './ai/model'
 import { GtmAiMeteringError } from './ai/telemetry'
+import { normalizeForScreening } from '../../../lib/fair-housing'
 import { getLatestLockedVersion } from './versions'
 import {
   THREADS_GRAPH_URL,
@@ -78,13 +79,18 @@ export class GtmPostReplyError extends Error {
 /* Mirrors the hub's replyIsFairHousingSafe (lib/audience-plays/live-conversations.ts)
  * plus the channel rules for a public reply. Anything it catches is refused,
  * never silently reworded. */
-const STEERING = /\b(safe|safer|safest|unsafe|crime|criminal|dangerous|sketchy|rough|family[- ]friendly|for families|best families|young families|good schools|great schools|best schools|top schools|bad schools|steer|demographic|ethnic|diverse|diversity|church|mosque|synagogue|minorit|immigrant|retirees|singles|kids? friendly|walkable for kids|exclusive|upscale crowd|good neighborhood|bad neighborhood|nice crowd)\b/i
+// Bare "rough", "exclusive" and "church" refused ordinary replies ("a rough
+// estimate", "an exclusive listing", "the church parking lot is free on
+// Saturdays"); they now count only where they characterise an area
+// (2026-09-25 review, M9). The text is normalised first (homoglyphs,
+// letter-adjacent digits), as in src/lib/fair-housing.ts.
+const STEERING = /\b(safe|safer|safest|unsafe|crime|criminal|dangerous|sketchy|rough\s+(?:area|neighbou?rhood|part\s+of\s+town|street|block)|family[- ]friendly|for families|best families|young families|good schools|great schools|best schools|top schools|bad schools|steer|demographic|ethnic|diverse|diversity|(?:near|close\s+to|next\s+to|walking\s+distance\s+to|by)\s+(?:a\s+|the\s+)?(?:church|mosque|synagogue|temple)|minorit|immigrant|retirees|singles|kids? friendly|kid[- ]free|walkable for kids|exclusive\s+(?:area|neighbou?rhood|community|enclave|part\s+of\s+town)|upscale crowd|good neighborhood|bad neighborhood|nice crowd)\b/i
 const CHANNEL_NOISE = /(https?:\/\/|www\.|#[a-z0-9_]|(^|\s)@[a-z0-9_.]{2,})/i
 
 export function replySafetyProblem(text: string): string | null {
   if (!text.trim()) return 'empty'
   if (text.length > POST_REPLY_MAX_CHARS) return 'too_long'
-  if (STEERING.test(text)) return 'fair_housing_steering'
+  if (STEERING.test(normalizeForScreening(text))) return 'fair_housing_steering'
   if (CHANNEL_NOISE.test(text)) return 'links_hashtags_or_mentions'
   if (/\[[A-Za-z ]+\]|\{[A-Za-z ]+\}/.test(text)) return 'placeholder'
   return null
@@ -260,16 +266,19 @@ export async function draftPostReply(
     return { bodyText: reply, model: result.model }
   } catch (error) {
     if (error instanceof GtmAiMeteringError) throw error
+    // The owner receives nothing, so nothing is charged: the attempt is still
+    // recorded (failed, zero tokens) for operators. A draft our own screen
+    // refused used to be billed at full token cost (2026-09-25 review, M9).
     await deps.meter?.({
       model: result?.model ?? deps.model.modelId ?? 'unknown',
-      tokensIn: result?.tokensIn ?? 0,
-      tokensOut: result?.tokensOut ?? 0,
-      tokenUsageKnown: result?.tokenUsageKnown !== false,
+      tokensIn: 0,
+      tokensOut: 0,
+      tokenUsageKnown: false,
       feature: POST_REPLY_FEATURE,
       status: 'failed',
       latencyMs: Date.now() - startedAt,
       retryCount: 0,
-      failureCode: 'invalid_model_output',
+      failureCode: result ? 'refused_or_invalid_draft' : 'model_call_failed',
     })
     throw new GtmPostReplyError('draft_failed', 'A reply could not be drafted for this post. Try again, or write your own.')
   }
