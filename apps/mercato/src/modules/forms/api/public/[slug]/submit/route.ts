@@ -9,6 +9,7 @@ import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
 import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-triggers'
+import { isValidEmail, summarizeFormSubmission, validateFormSubmission } from '../../../../lib/submission'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -47,13 +48,21 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     const fields = typeof form.fields === 'string' ? JSON.parse(form.fields) : (form.fields || [])
     const settings = typeof form.settings === 'string' ? JSON.parse(form.settings || '{}') : (form.settings || {})
 
-    for (const field of fields) {
-      if (field.required && !data[field.id] && data[field.id] !== 0 && data[field.id] !== false) {
-        return NextResponse.json(
-          { ok: false, error: `${field.label} is required`, field: field.id },
-          { status: 400, headers: CORS_HEADERS },
-        )
-      }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return NextResponse.json(
+        { ok: false, error: 'Something went wrong reading your answers. Please try again.' },
+        { status: 400, headers: CORS_HEADERS },
+      )
+    }
+
+    // Check every answer again on the server: required fields present, email
+    // fields real email addresses. The page shows `error` next to `field`.
+    const validation = validateFormSubmission(fields, data)
+    if (!validation.ok) {
+      return NextResponse.json(
+        { ok: false, error: validation.error, field: validation.field },
+        { status: 400, headers: CORS_HEADERS },
+      )
     }
 
     const submissionId = require('crypto').randomUUID()
@@ -82,7 +91,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     // Fallback: if the form owner didn't mark an email field, scan the
     // submitted data for the first string that parses as an email. Keeps
     // auto-contact-creation working for hand-built forms.
-    const isEmailLike = (v: unknown): v is string => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
+    const isEmailLike = isValidEmail
     const fallbackEmail = (() => {
       for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
         if (key.startsWith('_')) continue
@@ -95,7 +104,8 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     // The setting gates *creating* a new contact, not attaching the
     // interaction to an existing one.
     const shouldCreateContact = settings.createContact === true
-    const email = (emailField ? data[emailField.id] : null) || fallbackEmail
+    const mappedEmail = emailField ? data[emailField.id] : null
+    const email = (isValidEmail(mappedEmail) ? mappedEmail.trim() : null) || fallbackEmail
     const rawName = nameField ? data[nameField.id] : null
     const isDisplayNameMapping = nameField && (nameField.crmMapping === 'display_name' || nameField.crm_mapping === 'display_name')
     const firstName = isDisplayNameMapping ? (rawName || '').split(' ')[0] : rawName
@@ -264,8 +274,10 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             organization_id: form.organization_id,
             entity_id: contactId,
             activity_type: 'form_submission',
-            subject: `Form submitted: "${form.name}"`,
-            body: JSON.stringify(data),
+            // Plain text, never JSON: the reader shows body as written, and a
+            // JSON body comes back from decryption as an object.
+            subject: `Submitted form "${form.name}"`,
+            body: summarizeFormSubmission(fields, data) || null,
             occurred_at: now,
             created_at: now,
             updated_at: now,

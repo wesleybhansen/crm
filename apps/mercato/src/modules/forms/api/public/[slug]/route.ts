@@ -174,7 +174,7 @@ function renderFormHtml(form: any): string {
   .field-description { font-size: 13px; color: var(--text-muted); margin-bottom: 6px; margin-top: -2px; }
   input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="date"], input[type="url"], select, textarea {
     width: 100%; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
-    font-size: 15px; font-family: var(--font); color: var(--text); background: var(--card);
+    font-size: 16px; font-family: var(--font); color: var(--text); background: var(--card);
     transition: border-color 0.2s, box-shadow 0.2s; outline: none;
   }
   input:focus, select:focus, textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent); }
@@ -215,6 +215,8 @@ function renderFormHtml(form: any): string {
   .success-icon svg { width: 32px; height: 32px; color: var(--success); }
   .success-state h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
   .success-state p { color: var(--text-muted); font-size: 15px; }
+  .field-error { color: #dc2626; font-size: 13px; margin-top: 6px; }
+  .field-invalid input, .field-invalid select, .field-invalid textarea { border-color: #ef4444; }
   .error-message { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 16px; display: none; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   .form-card { animation: fadeIn 0.4s ease; }
@@ -295,9 +297,89 @@ function renderFormHtml(form: any): string {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };` : ''}
 
+  var EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+
+  function fieldWrap(el) { return el && el.closest ? el.closest('.field-full, .field-half') : null; }
+
+  function clearFieldErrors() {
+    form.querySelectorAll('.field-error').forEach(function(n) { n.parentNode.removeChild(n); });
+    form.querySelectorAll('.field-invalid').forEach(function(n) { n.classList.remove('field-invalid'); });
+  }
+
+  function showFieldError(wrap, message) {
+    if (!wrap) return;
+    wrap.classList.add('field-invalid');
+    var p = document.createElement('p');
+    p.className = 'field-error';
+    p.setAttribute('role', 'alert');
+    p.textContent = message;
+    wrap.appendChild(p);
+  }
+
+  function pageOf(el) {
+    var page = el && el.closest ? el.closest('.form-page') : null;
+    return page ? parseInt(page.getAttribute('data-page') || '0', 10) : 0;
+  }
+
+  function goToPage(index) {
+    if (totalPages <= 1 || index === currentPage || !window.changePage) return;
+    window.changePage(index - currentPage);
+  }
+
+  // Native validation is off (novalidate) so errors show inline, in plain
+  // English, next to each field. Nothing is sent until every field passes.
+  function validateAll() {
+    clearFieldErrors();
+    var firstBad = null;
+    var handled = {};
+    Array.prototype.forEach.call(form.elements, function(el) {
+      if (!el.name || handled[el.name] || el.type === 'submit' || el.type === 'button') return;
+      var message = null;
+      var value = (el.value || '').trim();
+      if (el.type === 'hidden') {
+        if (el.hasAttribute('required') && !value) message = 'Please choose an answer.';
+      } else if (el.type === 'radio' || el.type === 'checkbox') {
+        if (el.hasAttribute('required')) {
+          var group = form.querySelectorAll('input[name="' + el.name + '"]');
+          var any = Array.prototype.some.call(group, function(g) { return g.checked; });
+          if (!any) message = el.type === 'radio' ? 'Please choose an answer.' : 'This field is required.';
+        }
+      } else if (el.hasAttribute('required') && !value) {
+        message = 'This field is required.';
+      } else if (el.type === 'email' && value && !EMAIL_RE.test(value)) {
+        message = 'Enter a valid email address, like name@example.com.';
+      } else if (el.checkValidity && !el.checkValidity()) {
+        message = el.validationMessage || 'Please check this answer.';
+      }
+      if (message) {
+        handled[el.name] = true;
+        showFieldError(fieldWrap(el), message);
+        if (!firstBad) firstBad = el;
+      }
+    });
+    if (firstBad) {
+      goToPage(pageOf(firstBad));
+      var target = firstBad.type === 'hidden' ? fieldWrap(firstBad) : firstBad;
+      if (target && target.scrollIntoView) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (firstBad.type !== 'hidden' && firstBad.focus) { try { firstBad.focus({ preventScroll: true }); } catch (err) {} }
+      return false;
+    }
+    return true;
+  }
+
+  function clearOne(e) {
+    var wrap = fieldWrap(e.target);
+    if (!wrap || !wrap.classList.contains('field-invalid')) return;
+    wrap.classList.remove('field-invalid');
+    wrap.querySelectorAll('.field-error').forEach(function(n) { n.parentNode.removeChild(n); });
+  }
+  form.addEventListener('input', clearOne);
+  form.addEventListener('change', clearOne);
+
   form.addEventListener('submit', function(e) {
     e.preventDefault();
     errorMsg.style.display = 'none';
+    if (!validateAll()) return;
 
     var data = {};
     var formData = new FormData(form);
@@ -331,8 +413,15 @@ function renderFormHtml(form: any): string {
         document.getElementById('successView').style.display = 'block';
         if (r.redirectUrl) { setTimeout(function() { window.location.href = r.redirectUrl; }, 2000); }
       } else {
-        errorMsg.textContent = r.error || 'Something went wrong. Please try again.';
-        errorMsg.style.display = 'block';
+        var badField = r.field ? form.querySelector('[name="' + String(r.field).replace(/"/g, '') + '"]') : null;
+        if (badField && fieldWrap(badField)) {
+          showFieldError(fieldWrap(badField), r.error || 'Please check this answer.');
+          goToPage(pageOf(badField));
+          if (fieldWrap(badField).scrollIntoView) fieldWrap(badField).scrollIntoView({ block: 'center', behavior: 'smooth' });
+        } else {
+          errorMsg.textContent = r.error || 'Something went wrong. Please try again.';
+          errorMsg.style.display = 'block';
+        }
         if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '${escapeHtml(submitLabel)}'; }
       }
     })
