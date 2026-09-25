@@ -10,7 +10,7 @@ import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
 import { attributeReferral } from '@/modules/customers/api/affiliates/attribute'
-import { bumpDailyStats, readAbArmFromRequest } from '../../../../services/public-serving'
+import { bumpDailyStats, isValidAffiliateCode, readAbArmFromRequest } from '../../../../services/public-serving'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 
 export const metadata = {
@@ -117,12 +117,17 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     delete cleanData._utm_term
     delete cleanData._referrer
     delete cleanData._ab_variant
+    delete cleanData._ab_arm
+    delete cleanData._aff_ref
 
     // A/B conversion attribution: the serve route pinned this visitor to an
-    // arm via the lp_ab_{pageId} cookie. Validate the cookie value against the
-    // page's variants before trusting it (it is client-controlled input).
+    // arm via the lp_ab_{pageId} cookie. The page runs sandboxed (opaque
+    // origin), so its post carries no cookies; the serve route also hands the
+    // arm to the form as the hidden `_ab_arm` field. Either way the value is
+    // client-controlled, so it is validated against the page's variants.
     let abArm: string | null = null
-    const cookieArm = readAbArmFromRequest(req, page.id)
+    const bodyArm = typeof data._ab_arm === 'string' ? data._ab_arm : null
+    const cookieArm = readAbArmFromRequest(req, page.id) ?? bodyArm
     if (cookieArm === 'control') {
       abArm = 'control'
     } else if (cookieArm) {
@@ -272,9 +277,13 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           }).catch(() => {})
         }
 
-        // Attribute affiliate referral if cookie present
+        // Attribute an affiliate referral: the code arrives as the hidden
+        // `_aff_ref` field the serve route injected from the visitor's
+        // affiliate_ref cookie (the sandboxed page's post carries no cookies);
+        // attributeReferral falls back to the cookie when it is absent.
         if (email) {
-          attributeReferral(knex, page.organization_id, page.tenant_id, email).catch(() => {})
+          const affiliateCode = isValidAffiliateCode(data._aff_ref) ? data._aff_ref : undefined
+          attributeReferral(knex, page.organization_id, page.tenant_id, email, undefined, affiliateCode).catch(() => {})
         }
 
         // Log activity on the contact. Raw insert of encrypted-by-design

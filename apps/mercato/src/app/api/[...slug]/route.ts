@@ -22,6 +22,8 @@ import { checkApiKeyScopes } from '@open-mercato/core/modules/api_keys/lib/apiKe
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 import { isBlockedByMaintenance, MAINTENANCE_RETRY_AFTER_SECONDS } from '@open-mercato/shared/lib/runtime/tenancy'
+import { csrfErrorBody, evaluateCsrf } from '@/lib/csrf'
+import { applyPublicSurfaceHeaders, matchPublicSandboxEndpoint, publicCorsHeaders } from '@/lib/public-surface'
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -265,11 +267,29 @@ async function handleRequest(
       { status: 503, headers: { 'Retry-After': String(MAINTENANCE_RETRY_AFTER_SECONDS) } },
     )
   }
+  const params = await paramsPromise
+  const pathname = '/' + (params.slug?.join('/') ?? '')
+  // Cross-site request forgery guard (also enforced in src/proxy.ts): a
+  // cookie-authenticated write must come from the CRM's own origin as JSON
+  // or multipart. See src/lib/csrf.ts.
+  const csrf = evaluateCsrf({ method, pathname: `/api${pathname}`, headers: req.headers })
+  if (!csrf.ok) {
+    return NextResponse.json(csrfErrorBody(csrf), { status: csrf.status })
+  }
+  const response = await dispatchRequest(method, req, pathname)
+  // Customer-authored documents run sandboxed in an opaque origin; the public
+  // endpoints those pages call answer CORS. See src/lib/public-surface.ts.
+  return applyPublicSurfaceHeaders(response, `/api${pathname}`, method)
+}
+
+async function dispatchRequest(
+  method: HttpMethod,
+  req: NextRequest,
+  pathname: string,
+): Promise<Response> {
   const startedAt = Date.now()
   const requestId = buildRequestId(req)
   const { t } = await resolveTranslations()
-  const params = await paramsPromise
-  const pathname = '/' + (params.slug?.join('/') ?? '')
   const receivedPayload = {
     requestId,
     method,
@@ -466,4 +486,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   return handleRequest('DELETE', req, params)
+}
+
+/**
+ * CORS preflight. Next's automatic OPTIONS answer carries no CORS headers, so
+ * module OPTIONS handlers never ran and cross-origin JSON posts failed their
+ * preflight. The public endpoints that sandboxed customer pages call (their
+ * origin is opaque, so every call is cross-origin) get a credential-less
+ * preflight; a module's own OPTIONS handler runs next; anything else gets a
+ * plain 204 with no CORS grant.
+ */
+export async function OPTIONS(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+  const { slug } = await params
+  const pathname = '/' + (slug?.join('/') ?? '')
+  const publicEndpoint = matchPublicSandboxEndpoint(`/api${pathname}`)
+  if (publicEndpoint) {
+    return new Response(null, { status: 204, headers: publicCorsHeaders(publicEndpoint.methods) })
+  }
+  const api = findApi(modules, 'OPTIONS' as HttpMethod, pathname)
+  if (api) return api.handler(req, { params: api.params, auth: null })
+  return new Response(null, { status: 204, headers: { Allow: 'GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE' } })
 }

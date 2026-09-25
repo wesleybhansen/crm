@@ -2,6 +2,7 @@ import dns from 'node:dns'
 import dnsPromises from 'node:dns/promises'
 import net from 'node:net'
 import { Agent } from 'undici'
+import { isBlockedIpAddress } from '@open-mercato/shared/lib/network/blocked-ip'
 
 /* SSRF-safe fetch. Routes that fetch a USER-SUPPLIED URL (website scanners)
  * must use this instead of a raw fetch, or an authenticated customer can point
@@ -17,27 +18,11 @@ export class SsrfError extends Error {
   }
 }
 
+// Shared classifier: also unwraps hex IPv4-mapped (::ffff:7f00:1), NAT64
+// (64:ff9b::/96), 6to4 and IPv4-compatible forms, and blocks 198.18.0.0/15
+// and the documentation ranges (security sweep 2026-09-25, low).
 function ipIsBlocked(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split('.').map(Number)
-    if (a === 0 || a === 10 || a === 127) return true
-    if (a === 169 && b === 254) return true // link-local + cloud metadata
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 192 && b === 168) return true
-    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
-    if (a >= 224) return true // multicast / reserved
-    return false
-  }
-  if (net.isIPv6(ip)) {
-    const lower = ip.toLowerCase()
-    if (lower === '::1' || lower === '::') return true
-    if (lower.startsWith('fe80')) return true
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return true
-    const mapped = lower.match(/::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
-    if (mapped) return ipIsBlocked(mapped[1])
-    return false
-  }
-  return true
+  return isBlockedIpAddress(ip)
 }
 
 function blockedLookupError(message: string): NodeJS.ErrnoException {

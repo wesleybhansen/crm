@@ -483,7 +483,8 @@ function formScript(formAction: string): string {
         var ft = document.querySelector('.lp-ft') || document.querySelector('.sp-trust');
         if (ft) ft.style.display = 'none';
         var s = document.getElementById('lp-success');
-        if (s) { s.classList.add('lp-show'); if (r.message) s.querySelector('p').textContent = r.message; }
+        // lp-show is the full layout's class, sp-show the simple layout's.
+        if (s) { s.classList.add('lp-show'); s.classList.add('sp-show'); var sp = s.querySelector('p'); if (r.message && sp) sp.textContent = r.message; }
       } else {
         alert(r.error || 'Something went wrong');
         submitting = false;

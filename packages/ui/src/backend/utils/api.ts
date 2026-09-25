@@ -128,6 +128,39 @@ export function isReplayableRequest(input: RequestInfo | URL, init?: RequestInit
   return false
 }
 
+function isSameOriginTarget(input: RequestInfo | URL): boolean {
+  if (typeof window === 'undefined') return false
+  let raw: string
+  if (typeof input === 'string') raw = input
+  else if (input instanceof URL) raw = input.toString()
+  else return false // a Request carries its own headers; leave it alone
+  try {
+    return new URL(raw, window.location.href).origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The CRM rejects cookie-authenticated writes whose body is not declared
+ * JSON or multipart (CSRF guard, apps/mercato/src/lib/csrf.ts). Many callers
+ * pass `body: JSON.stringify(...)` without a Content-Type, which the browser
+ * sends as text/plain. For same-origin writes with a JSON-looking string body
+ * and no Content-Type, declare it as JSON. @internal exported for tests.
+ */
+export function withJsonContentTypeDefault(input: RequestInfo | URL, init?: RequestInit): RequestInit | undefined {
+  if (!init || typeof init.body !== 'string') return init
+  const method = (init.method ?? 'GET').toUpperCase()
+  if (method === 'GET' || method === 'HEAD') return init
+  const trimmed = init.body.trimStart()
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return init
+  const headers = new Headers(init.headers ?? {})
+  if (headers.has('content-type')) return init
+  if (!isSameOriginTarget(input)) return init
+  headers.set('content-type', 'application/json')
+  return { ...init, headers }
+}
+
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   const originalFetch =
@@ -143,9 +176,10 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     )
   }
   const scoped = scopedHeaders.resolveScopedHeaders()
+  const typedInit = withJsonContentTypeDefault(input, init)
   const mergedInit = Object.keys(scoped).length
-    ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
-    : init
+    ? { ...(typedInit ?? {}), headers: mergeHeaders(typedInit?.headers, scoped) }
+    : typedInit
   const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
   const onLoginPage = pathname.startsWith('/login')
   const onPortalRoute = /\/[^/]+\/portal(\/|$)/.test(pathname)

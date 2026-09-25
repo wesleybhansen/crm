@@ -48,8 +48,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ widgetI
   var PRIMARY='${primaryColor}';
   var GREETING='${greeting}';
   var API='${apiBase}';
-  var convId=sessionStorage.getItem('om_chat_conv_'+WIDGET_ID)||null;
-  var convToken=sessionStorage.getItem('om_chat_tok_'+WIDGET_ID)||null;
+  // Storage throws in sandboxed pages (opaque origin, e.g. a CRM-hosted
+  // landing page): fall back to an in-memory session for that page view.
+  function ssGet(k){try{return sessionStorage.getItem(k)}catch(e){return null}}
+  function ssSet(k,v){try{sessionStorage.setItem(k,v)}catch(e){}}
+  var convId=ssGet('om_chat_conv_'+WIDGET_ID)||null;
+  var convToken=ssGet('om_chat_tok_'+WIDGET_ID)||null;
   var pollTimer=null;
   var isOpen=false;
   var hasIdentified=false;
@@ -174,7 +178,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ widgetI
 
   function sendTyping(typing){
     if(!convId)return;
-    fetch(TYPING_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversationId:convId,isTyping:typing,sender:'visitor'})}).catch(function(){});
+    fetch(TYPING_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversationId:convId,visitorToken:convToken,widgetId:WIDGET_ID,isTyping:typing,sender:'visitor'})}).catch(function(){});
   }
 
   chatInput.oninput=function(){
@@ -202,7 +206,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ widgetI
       fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({widgetId:WIDGET_ID,visitorName:name,visitorEmail:email,message:text})})
         .then(function(r){return r.json()})
         .then(function(d){
-          if(d.ok){convId=d.data.conversationId;convToken=d.data.visitorToken||null;sessionStorage.setItem('om_chat_conv_'+WIDGET_ID,convId);if(convToken)sessionStorage.setItem('om_chat_tok_'+WIDGET_ID,convToken);startPoll()}
+          if(d.ok){convId=d.data.conversationId;convToken=d.data.visitorToken||null;ssSet('om_chat_conv_'+WIDGET_ID,convId);if(convToken)ssSet('om_chat_tok_'+WIDGET_ID,convToken);startPoll()}
           else addMsg('Failed to start conversation. Please try again.','system');
         }).catch(function(){addMsg('Connection error. Please try again.','system')});
     }else{

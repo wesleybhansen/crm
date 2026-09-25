@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { secretEquals } from './secretEquals'
 
 function base64url(input: Buffer | string) {
   return (typeof input === 'string' ? Buffer.from(input) : input)
@@ -30,7 +31,8 @@ export function verifyJwt(token: string, secret = process.env.JWT_SECRET!) {
   const [h, p, s] = parts
   const data = `${h}.${p}`
   const expected = base64url(crypto.createHmac('sha256', secret).update(data).digest())
-  if (!crypto.timingSafeEqual(Buffer.from(s), Buffer.from(expected))) return null
+  // Constant-time, and never throws on a signature of the wrong length.
+  if (!secretEquals(s, expected)) return null
   const payload = JSON.parse(Buffer.from(p, 'base64').toString('utf8'))
   const now = Math.floor(Date.now() / 1000)
   if (payload.exp && now > payload.exp) return null

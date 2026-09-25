@@ -8,6 +8,7 @@ import {
   trustedRequestHost,
 } from '@/lib/security-headers'
 import { sameOriginPath } from '@/lib/auth-redirects'
+import { csrfErrorBody, evaluateCsrf } from '@/lib/csrf'
 
 // Note: Do NOT import bootstrap here — proxy runs in Edge runtime which
 // cannot use Node.js modules like MikroORM. Bootstrap is called in
@@ -83,6 +84,19 @@ async function handleProxyRequest(req: NextRequest, resolveUserId: () => Promise
   const rawHost = trustedRequestHost(req.headers, '')
   const customHost = rawHost.trim().toLowerCase().replace(/:\d+$/, '')
   const ownHost = isOwnHost(customHost)
+
+  // Cross-site request forgery guard for cookie-authenticated API writes
+  // (the [...slug] dispatcher enforces the same rule). See src/lib/csrf.ts.
+  if (req.nextUrl.pathname.startsWith('/api/')) {
+    const csrf = evaluateCsrf({ method: req.method, pathname: req.nextUrl.pathname, headers: req.headers })
+    if (!csrf.ok) {
+      return withBrowserSecurityHeaders(
+        NextResponse.json(csrfErrorBody(csrf), { status: csrf.status }),
+        req.nextUrl.pathname,
+        ownHost,
+      )
+    }
+  }
 
   const canonicalPathname = trailingSlashRedirectPath(req.nextUrl.pathname)
   if (canonicalPathname) {

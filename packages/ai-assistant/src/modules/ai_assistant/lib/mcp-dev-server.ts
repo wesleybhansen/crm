@@ -8,6 +8,7 @@ import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod } from './schema-utils'
 import type { McpToolContext } from './types'
+import { secretEquals } from '@open-mercato/shared/lib/auth/secretEquals'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -341,7 +342,7 @@ export async function runMcpDevServer(): Promise<void> {
     }
 
     // Validate against the configured API key
-    if (providedApiKey !== apiKey) {
+    if (!secretEquals(providedApiKey, apiKey)) {
       res.writeHead(401, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Invalid API key' }))
       return

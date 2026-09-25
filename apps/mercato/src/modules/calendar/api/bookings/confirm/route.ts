@@ -85,6 +85,27 @@ export async function GET(req: Request) {
   }
 }
 
+/** Everything interpolated into these pages is guest- or owner-supplied. */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** Only http(s) links may become an href (no javascript: or data: URLs). */
+function safeHttpUrl(value: string | null | undefined): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
+  } catch {
+    return null
+  }
+}
+
 function renderErrorHtml(message: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -106,7 +127,7 @@ function renderErrorHtml(message: string): string {
   <div class="card">
     <div class="icon">&#10007;</div>
     <h1>Unable to Confirm</h1>
-    <p>${message}</p>
+    <p>${escapeHtml(message)}</p>
   </div>
 </body>
 </html>`
@@ -130,20 +151,21 @@ function renderConfirmationHtml(details: {
     in_person: 'In Person',
   }
 
-  const meetingLabel = meetingTypeLabels[details.meetingType] || details.meetingType
+  const meetingLabel = escapeHtml(meetingTypeLabels[details.meetingType] || details.meetingType)
+  const meetingHref = safeHttpUrl(details.meetingLink)
 
   let meetingDetails = ''
-  if (details.meetingLink) {
+  if (meetingHref) {
     meetingDetails = `
       <div class="detail">
         <span class="detail-label">Meeting Link</span>
-        <a href="${details.meetingLink}" target="_blank" rel="noopener" class="meeting-link">${meetingLabel} &rarr;</a>
+        <a href="${escapeHtml(meetingHref)}" target="_blank" rel="noopener noreferrer" class="meeting-link">${meetingLabel} &rarr;</a>
       </div>`
   } else if (details.meetingLocation) {
     meetingDetails = `
       <div class="detail">
         <span class="detail-label">${details.meetingType === 'phone' ? 'Phone' : 'Location'}</span>
-        <span class="detail-value">${details.meetingLocation}</span>
+        <span class="detail-value">${escapeHtml(details.meetingLocation)}</span>
       </div>`
   }
 
@@ -177,20 +199,20 @@ function renderConfirmationHtml(details: {
     <div class="header">
       <div class="icon">&#10003;</div>
       <h1>Your Appointment is Confirmed!</h1>
-      <p class="subtitle">${details.title}</p>
+      <p class="subtitle">${escapeHtml(details.title)}</p>
     </div>
     <div class="details">
       <div class="detail">
         <span class="detail-label">Date</span>
-        <span class="detail-value">${details.dateStr}</span>
+        <span class="detail-value">${escapeHtml(details.dateStr)}</span>
       </div>
       <div class="detail">
         <span class="detail-label">Time</span>
-        <span class="detail-value">${details.timeStr} - ${details.endTimeStr}</span>
+        <span class="detail-value">${escapeHtml(details.timeStr)} - ${escapeHtml(details.endTimeStr)}</span>
       </div>
       <div class="detail">
         <span class="detail-label">Duration</span>
-        <span class="detail-value">${details.durationMinutes} minutes</span>
+        <span class="detail-value">${escapeHtml(details.durationMinutes)} minutes</span>
       </div>
       <div class="detail">
         <span class="detail-label">Meeting Type</span>
@@ -198,7 +220,7 @@ function renderConfirmationHtml(details: {
       </div>${meetingDetails}
     </div>
     <p class="footer">
-      Hi ${details.guestName}, your booking has been confirmed.<br>
+      Hi ${escapeHtml(details.guestName)}, your booking has been confirmed.<br>
       You can close this page now.
     </p>
   </div>

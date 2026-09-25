@@ -14,6 +14,7 @@ import net from 'node:net'
 import crypto from 'crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { safeFetch, SsrfError } from '@/lib/safe-fetch'
+import { isBlockedIpAddress } from '@open-mercato/shared/lib/network/blocked-ip'
 
 // Matches the per-entry cap used by the knowledge POST route so a single web
 // page can never store an unbounded blob.
@@ -27,33 +28,11 @@ const USER_AGENT =
   'Mozilla/5.0 (compatible; NoliCRM/1.0; +https://noliai.com) customer-service-grounding'
 
 // Is this IP literal in a loopback / private / link-local / reserved range?
-// Used both for direct-IP URLs and for resolved hostnames (SSRF defense).
+// Used both for direct-IP URLs and for resolved hostnames (SSRF defense). The
+// shared classifier also unwraps IPv4 embedded in IPv6 (hex-mapped, NAT64,
+// 6to4) and blocks the benchmarking and documentation ranges.
 function isBlockedIp(ip: string): boolean {
-  const type = net.isIP(ip)
-  if (type === 4) {
-    const parts = ip.split('.').map((n) => parseInt(n, 10))
-    const [a, b] = parts
-    if (a === 0) return true // 0.0.0.0/8
-    if (a === 10) return true // 10.0.0.0/8
-    if (a === 127) return true // loopback
-    if (a === 169 && b === 254) return true // link-local 169.254.0.0/16
-    if (a === 172 && b >= 16 && b <= 31) return true // 172.16.0.0/12
-    if (a === 192 && b === 168) return true // 192.168.0.0/16
-    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT 100.64.0.0/10
-    if (a >= 224) return true // multicast / reserved
-    return false
-  }
-  if (type === 6) {
-    const lower = ip.toLowerCase()
-    if (lower === '::1' || lower === '::') return true // loopback / unspecified
-    if (lower.startsWith('fe80')) return true // link-local
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return true // unique local
-    // IPv4-mapped (::ffff:127.0.0.1 etc) — re-check the embedded v4.
-    const mapped = lower.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-    if (mapped) return isBlockedIp(mapped[1])
-    return false
-  }
-  return true // unknown format — block to be safe.
+  return isBlockedIpAddress(ip)
 }
 
 // Validate the URL string + resolve its host and confirm no resolved address is

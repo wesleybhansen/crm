@@ -124,6 +124,50 @@ async function bumpReferrer(
   }
 }
 
+/** Affiliate codes are short slugs; anything else in the cookie is ignored. */
+const AFFILIATE_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+export function readAffiliateRefFromRequest(req: Request): string | null {
+  const header = req.headers.get('cookie')
+  if (!header) return null
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=')
+    if (idx === -1) continue
+    if (part.slice(0, idx).trim() !== 'affiliate_ref') continue
+    let value = part.slice(idx + 1).trim()
+    try {
+      value = decodeURIComponent(value)
+    } catch {
+      return null
+    }
+    return AFFILIATE_CODE_PATTERN.test(value) ? value : null
+  }
+  return null
+}
+
+export function isValidAffiliateCode(value: unknown): value is string {
+  return typeof value === 'string' && AFFILIATE_CODE_PATTERN.test(value)
+}
+
+/**
+ * Published pages are served in a CSP sandbox (opaque origin, see
+ * src/lib/public-surface.ts), so their form posts are cross-origin and carry
+ * no cookies. The serve request still sees the visitor's cookies, so the A/B
+ * arm and affiliate referral code the submit handler used to read from
+ * cookies are handed to the page's forms as hidden fields instead.
+ */
+export function visitorContextScript(fields: Record<string, string | null | undefined>): string {
+  const entries = Object.entries(fields).filter(([, v]) => typeof v === 'string' && v.length > 0)
+  if (entries.length === 0) return ''
+  const json = JSON.stringify(Object.fromEntries(entries))
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+  return `<script>(function(){try{var v=${json};document.querySelectorAll('form').forEach(function(f){Object.keys(v).forEach(function(k){if(f.querySelector('input[name="'+k+'"]'))return;var h=document.createElement('input');h.type='hidden';h.name=k;h.value=v[k];f.appendChild(h)})})}catch(e){}})()</script>`
+}
+
 const UTM_CAPTURE_SCRIPT = `<script>(function(){try{var p=new URLSearchParams(window.location.search);var u=['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];var r=document.referrer||'';document.querySelectorAll('form').forEach(function(f){u.forEach(function(k){var v=p.get(k);if(v){var h=document.createElement('input');h.type='hidden';h.name='_'+k;h.value=v;f.appendChild(h)}});if(r){var rh=document.createElement('input');rh.type='hidden';rh.name='_referrer';rh.value=r;f.appendChild(rh)}})}catch(e){}})()</script>`
 
 function normalizeHtml(html: string, opts: { makeApiUrlsRelative: boolean }): string {
@@ -205,14 +249,23 @@ export async function servePublishedLandingPage(
   await bumpDailyStats(knex, page as any, abActive ? arm : null, 'view')
   await bumpReferrer(knex, page as any, req)
 
+  const affiliateRef = readAffiliateRefFromRequest(req)
+  const injected = UTM_CAPTURE_SCRIPT + visitorContextScript({
+    _ab_arm: abActive ? arm : null,
+    _aff_ref: affiliateRef,
+  })
   html = normalizeHtml(html, { makeApiUrlsRelative: !!opts.makeApiUrlsRelative })
-  html = html.includes('</body>') ? html.replace('</body>', UTM_CAPTURE_SCRIPT + '</body>') : html + UTM_CAPTURE_SCRIPT
+  // Split on the LAST </body> via lastIndexOf: String.replace would also
+  // interpret `$` patterns in the injected script.
+  const bodyClose = html.lastIndexOf('</body>')
+  html = bodyClose === -1 ? html + injected : html.slice(0, bodyClose) + injected + html.slice(bodyClose)
 
   const headers: Record<string, string> = {
     'Content-Type': 'text/html; charset=utf-8',
-    // A/B responses vary per visitor (sticky cookie), so they must not be
-    // shared-cached; non-test pages keep the original short public cache.
-    'Cache-Control': abActive ? 'no-store' : 'public, max-age=60',
+    // A/B responses and pages carrying a visitor's referral code vary per
+    // visitor, so they must not be shared-cached; other pages keep the
+    // original short public cache.
+    'Cache-Control': abActive || affiliateRef ? 'private, no-store' : 'public, max-age=60',
   }
   const res = new NextResponse(html, { status: 200, headers })
   if (abActive) {

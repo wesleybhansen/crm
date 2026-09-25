@@ -12,6 +12,7 @@ import type { Knex } from 'knex'
 
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { isBlockedIpAddress } from '@open-mercato/shared/lib/network/blocked-ip'
 
 /** Customer-supplied webhook targets must resolve to public addresses only:
  *  the delivery body is theirs, but the response comes back through the
@@ -31,12 +32,9 @@ async function assertPublicTarget(rawUrl: string): Promise<void> {
   }
 }
 function isPrivateAddress(ip: string): boolean {
-  if (ip.includes(':')) {
-    const v = ip.toLowerCase()
-    return v === '::1' || v === '::' || v.startsWith('fe80:') || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('::ffff:') && isPrivateAddress(v.slice(7))
-  }
-  const [a, b] = ip.split('.').map(Number)
-  return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
+  // Shared classifier: also covers hex IPv4-mapped IPv6 (::ffff:7f00:1),
+  // NAT64 (64:ff9b::/96), 6to4, multicast and 198.18.0.0/15.
+  return isBlockedIpAddress(ip)
 }
 
 const MAX_ATTEMPTS = 3
