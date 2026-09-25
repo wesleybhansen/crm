@@ -22,6 +22,8 @@ const events = [
   { id: 'customers.deal.updated', label: 'Deal Updated', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.deleted', label: 'Deal Deleted', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.stage_changed', label: 'Deal Stage Changed', entity: 'deal', category: 'lifecycle' },
+  // Emitted once when a deal moves into a won/closed status or stage (lib/dealClosed.ts).
+  { id: 'customers.deal.closed', label: 'Deal Closed (Won)', entity: 'deal', category: 'lifecycle' },
 
   // Comments
   { id: 'customers.comment.created', label: 'Comment Created', entity: 'comment', category: 'crud' },

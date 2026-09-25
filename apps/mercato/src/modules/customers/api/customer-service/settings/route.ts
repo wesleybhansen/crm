@@ -12,8 +12,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildDefaultSignature } from '@/modules/customers/lib/draft-reply'
+import { ASSISTED_INQUIRY_TYPES, DEFAULT_ASSISTED_CONFIG, normalizeAssistedConfig } from '@/modules/customers/lib/assisted-send'
 
-const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
+const VALID_MODES = new Set(['draft', 'auto', 'hybrid', 'assisted'])
+
+// The catalog the Assisted panel renders its checkboxes from (keys are stored).
+const ASSISTED_INQUIRY_CATALOG = ASSISTED_INQUIRY_TYPES.map((t) => ({ key: t.key, label: t.label, description: t.description }))
 const VALID_FLAG_ACTIONS = new Set(['pause', 'auto_send'])
 
 export type FlagScenario = { key: string; label: string; enabled: boolean; action: 'pause' | 'auto_send'; instructions: string }
@@ -162,7 +166,7 @@ function normalizeE164(v: unknown): string | null {
 function serialize(row: any, defaultSignature = '') {
   if (!row) {
     // No saved row: seed the default flag-scenario list so the UI shows it.
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, csChatEnabled: false, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })), defaultSignature }
+    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, csChatEnabled: false, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })), assisted: normalizeAssistedConfig(null), assistedInquiryTypes: ASSISTED_INQUIRY_CATALOG, defaultSignature }
   }
   // Saved row: overlay the user's scenarios onto the canonical defaults. Falls
   // back to the full default seed when nothing usable has been saved yet.
@@ -181,6 +185,10 @@ function serialize(row: any, defaultSignature = '') {
     // the standalone widget bot. Default false = existing widget-bot behavior.
     csChatEnabled: !!row.cs_chat_enabled,
     flagScenarios,
+    // Assisted reply mode settings (used when replyMode is 'assisted'), plus the
+    // inquiry-type catalog the settings panel renders.
+    assisted: normalizeAssistedConfig(row.assisted_config),
+    assistedInquiryTypes: ASSISTED_INQUIRY_CATALOG,
     // Computed sign-off the UI uses to prepopulate the field when no signature
     // is saved yet. Built from the org's business name; never client-supplied.
     defaultSignature,
@@ -230,7 +238,7 @@ export async function PUT(req: Request) {
       }
     }
 
-    // reply_mode: one of draft | auto | hybrid. Reject anything else (keep the
+    // reply_mode: one of draft | auto | hybrid | assisted. Reject anything else (keep the
     // existing value rather than silently corrupting it).
     const replyModeIn = typeof body.replyMode === 'string' ? body.replyMode : undefined
     const replyMode = (replyModeIn && VALID_MODES.has(replyModeIn))
@@ -310,6 +318,14 @@ export async function PUT(req: Request) {
       flagScenarios = parseFlagScenarios(existing?.flag_scenarios) || DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s }))
     }
 
+    // assisted_config: merge the submitted Assisted settings over what is saved
+    // (normalizeAssistedConfig drops unknown inquiry types, bad times and
+    // timezones, and clamps the numbers). Omitted in the body = keep existing.
+    const assistedConfig = normalizeAssistedConfig(
+      body.assisted,
+      normalizeAssistedConfig(existing?.assisted_config ?? null, DEFAULT_ASSISTED_CONFIG),
+    )
+
     const fields = {
       enabled,
       watched_connection_ids: watched ? JSON.stringify(watched) : null,
@@ -320,6 +336,7 @@ export async function PUT(req: Request) {
       cs_sms_number: csSmsNumber,
       cs_chat_enabled: csChatEnabled,
       flag_scenarios: JSON.stringify(flagScenarios),
+      ...(body.assisted !== undefined ? { assisted_config: JSON.stringify(assistedConfig) } : {}),
       updated_at: new Date(),
     }
 

@@ -190,6 +190,7 @@ type QueueItem = {
   channel?: 'email' | 'sms' | string | null
   flagged?: boolean
   flagReasons?: FlagReason[]
+  assistedHoldReasons?: FlagReason[]
   summary: string | null
   contact: { id: string | null; name: string | null; email: string | null; phone?: string | null }
   conversationId: string | null
@@ -342,6 +343,12 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetup }
               <div className="flex items-center gap-2 px-4 py-2 bg-[#fffbeb] dark:bg-[#f59e0b]/10 text-[#b45309] dark:text-[#fbbf24] text-xs font-medium">
                 <Flag className="size-3.5 shrink-0" />
                 <span className="truncate">Flagged: {flagLabels.join(', ')}</span>
+              </div>
+            )}
+            {/* Assisted mode: why this reply waits for approval instead of sending. */}
+            {(item.assistedHoldReasons || []).length > 0 && (
+              <div className="px-4 py-2 text-xs text-muted-foreground">
+                Waiting for you: {(item.assistedHoldReasons || []).map(r => r.label).join('; ')}
               </div>
             )}
             {/* Contact header */}

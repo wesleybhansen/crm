@@ -247,3 +247,67 @@ export class IntegrationsApiAmsEvent {
   @Property({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt?: Date | null
 }
+
+/**
+ * Outbox for events the CRM delivers to other Noli apps (today: a closed deal
+ * to the marketing app). One row per event, written by a subscriber and sent
+ * by lib/outbound-events.ts with retries and backoff, so a slow or failing
+ * receiver never holds up the write that caused the event. The subject unique
+ * key is the dedupe: one `deal.closed` row per deal, ever. Rows hold ids only;
+ * the payload is built (and decrypted) at send time.
+ */
+@Entity({ tableName: 'integrations_api_outbound_events' })
+@Index({ name: 'integrations_api_outbound_events_due_idx', properties: ['status', 'nextAttemptAt'] })
+@Unique({ name: 'integrations_api_outbound_events_subject_unique', properties: ['organizationId', 'eventType', 'subjectId'] })
+@Unique({ name: 'integrations_api_outbound_events_event_id_unique', properties: ['eventId'] })
+export class IntegrationsApiOutboundEvent {
+  [OptionalProps]?: 'id' | 'status' | 'attempts' | 'nextAttemptAt' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'event_type', type: 'text' })
+  eventType!: string
+
+  @Property({ name: 'subject_id', type: 'uuid' })
+  subjectId!: string
+
+  @Property({ name: 'event_id', type: 'text' })
+  eventId!: string
+
+  @Property({ type: 'text' })
+  target!: string
+
+  @Property({ name: 'occurred_at', type: 'timestamptz' })
+  occurredAt!: Date
+
+  @Property({ type: 'text', default: 'pending' })
+  status: string = 'pending'
+
+  @Property({ type: 'integer', default: 0 })
+  attempts: number = 0
+
+  @Property({ name: 'next_attempt_at', type: 'timestamptz', defaultRaw: 'now()' })
+  nextAttemptAt: Date = new Date()
+
+  @Property({ name: 'last_status_code', type: 'integer', nullable: true })
+  lastStatusCode?: number | null
+
+  @Property({ name: 'last_error', type: 'text', nullable: true })
+  lastError?: string | null
+
+  @Property({ name: 'delivered_at', type: 'timestamptz', nullable: true })
+  deliveredAt?: Date | null
+
+  @Property({ name: 'created_at', type: 'timestamptz', defaultRaw: 'now()' })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: 'timestamptz', defaultRaw: 'now()', onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}

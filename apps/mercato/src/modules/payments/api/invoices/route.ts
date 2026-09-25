@@ -127,12 +127,29 @@ export async function PUT(req: Request, ctx: any) {
       }
     }
 
+    const before = await knex('invoices')
+      .where('id', id)
+      .where('organization_id', auth.orgId)
+      .first('status')
+
     await knex('invoices')
       .where('id', id)
       .where('organization_id', auth.orgId)
       .update(update)
 
-    const invoice = await knex('invoices').where('id', id).first()
+    const invoice = await knex('invoices').where('id', id).where('organization_id', auth.orgId).first()
+
+    // Marked paid just now: one payments.invoice.paid for automations.
+    if (invoice && update.status === 'paid' && before?.status !== 'paid') {
+      const { emitInvoicePaid } = await import('@/lib/crm-business-events')
+      await emitInvoicePaid(container.resolve('eventBus') as Parameters<typeof emitInvoicePaid>[0], {
+        id: String(invoice.id),
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        paidAt: (update.paid_at as Date).toISOString(),
+        contactId: invoice.contact_id ?? null,
+      })
+    }
     return NextResponse.json({ ok: true, data: invoice })
   } catch (error) {
     console.error('[payments.invoices.update]', error)

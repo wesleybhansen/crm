@@ -1,5 +1,5 @@
-import { applyTaskTemplate } from '@/modules/customers/api/task-templates/apply/route'
-import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { applyTaskTemplate } from '../../customers/api/task-templates/apply/route'
+import { sendEmailByPurpose } from '../../email/lib/email-router'
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import {
   buildSenderContext,
@@ -14,7 +14,17 @@ import {
  *
  * Executes matching automation rules for a given trigger type.
  * Called fire-and-forget from various routes (form submissions, tag assignments, etc.)
+ * and, for deal won / stage change / invoice paid / booking created, from the
+ * event subscribers through automation-dispatch.ts (once per event).
+ *
+ * Relative imports only: the dispatch subscribers are bundled into the queue workers.
  */
+
+type ActionResult = { success: boolean; skipped?: boolean; detail?: string; error?: string }
+
+function normalizeStage(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase()
+}
 
 // ---------------------------------------------------------------------------
 // Condition Evaluation
@@ -130,11 +140,12 @@ export async function executeAutomationRules(
         await executeSteps(knex, orgId, tenantId, rule, steps, 0, context)
       } else {
         // Legacy single-action execution
-        let actionResult: any = { success: false }
+        let actionResult: ActionResult = { success: false }
         let status = 'executed'
 
         try {
           actionResult = await executeAction(knex, orgId, tenantId, rule.action_type, actionConfig, { ...context, ruleId: rule.id })
+          if (actionResult.skipped) status = 'skipped'
         } catch (err) {
           status = 'failed'
           actionResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
@@ -189,10 +200,13 @@ function matchesTriggerConfig(
       if (triggerConfig.source && triggerConfig.source !== context.source) return false
       return true
 
-    case 'stage_change':
-      if (triggerConfig.fromStage && triggerConfig.fromStage !== context.fromStage) return false
-      if (triggerConfig.toStage && triggerConfig.toStage !== context.toStage) return false
+    case 'stage_change': {
+      // `stage` is the journey-board spelling of `toStage`; names match case-insensitively.
+      const wantTo = triggerConfig.toStage ?? triggerConfig.stage
+      if (triggerConfig.fromStage && normalizeStage(triggerConfig.fromStage) !== normalizeStage(context.fromStage)) return false
+      if (wantTo && normalizeStage(wantTo) !== normalizeStage(context.toStage)) return false
       return true
+    }
 
     case 'invoice_paid':
     case 'booking_created':
@@ -211,7 +225,7 @@ async function executeAction(
   actionType: string,
   actionConfig: Record<string, any>,
   context: Record<string, any>
-): Promise<{ success: boolean; detail?: string }> {
+): Promise<ActionResult> {
   switch (actionType) {
     case 'send_email': {
       if (!context.contactId) return { success: false, detail: 'No contactId in context' }
@@ -286,7 +300,7 @@ async function executeAction(
       // Log to contact timeline
       if (result.ok && context.contactId) {
         try {
-          const { logTimelineEvent } = await import('@/lib/timeline')
+          const { logTimelineEvent } = await import('../../../lib/timeline')
           await logTimelineEvent(knex, {
             tenantId,
             organizationId: orgId,
@@ -302,8 +316,13 @@ async function executeAction(
     }
 
     case 'send_sms': {
-      console.log(`[automation-rules] SMS action triggered for contact ${context.contactId}: ${actionConfig.message || 'No message'}`)
-      return { success: true, detail: 'SMS logged (provider not configured)' }
+      const { sendAutomationSms } = await import('./automation-sms')
+      return sendAutomationSms(knex, { organizationId: orgId, tenantId }, {
+        contactId: context.contactId || null,
+        message: actionConfig.message,
+        ruleId: (context.ruleId as string | undefined) || null,
+        reference: (context.reference as string | undefined) || null,
+      })
     }
 
     case 'add_tag': {
@@ -375,7 +394,7 @@ async function executeAction(
         .update({ lifecycle_stage: actionConfig.stage, updated_at: new Date() })
 
       // Log to timeline
-      const { logTimelineEvent } = await import('@/lib/timeline')
+      const { logTimelineEvent } = await import('../../../lib/timeline')
       await logTimelineEvent(knex, {
         tenantId, organizationId: orgId, contactId: context.contactId,
         eventType: 'lifecycle_change', title: `Stage changed to ${actionConfig.stage}`,
@@ -587,11 +606,12 @@ async function executeSteps(
     if (step.type === 'action') {
       const stepActionType = step.actionType || 'send_email'
       const stepActionConfig = step.actionConfig || {}
-      let actionResult: any = { success: false }
+      let actionResult: ActionResult = { success: false }
       let status = 'executed'
 
       try {
         actionResult = await executeAction(knex, orgId, tenantId, stepActionType, stepActionConfig, { ...context, ruleId: rule?.id || context.ruleId })
+        if (actionResult.skipped) status = 'skipped'
       } catch (err) {
         status = 'failed'
         actionResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' }

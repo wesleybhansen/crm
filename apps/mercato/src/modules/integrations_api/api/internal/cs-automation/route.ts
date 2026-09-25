@@ -16,6 +16,9 @@ export const metadata = {
 }
 
 const VALID_MODES = new Set(['draft', 'hybrid', 'auto'])
+// The desk also has 'assisted' (auto-send only the inquiry types the owner
+// enabled, when every safety gate passes); the personal inbox engine does not.
+const DESK_MODES = new Set(['draft', 'hybrid', 'auto', 'assisted'])
 const VALID_ACTIONS = new Set(['pause', 'auto_send', 'no_draft'])
 
 // Sensible rules ON by default; the automated/no-reply rule withholds drafting.
@@ -101,6 +104,7 @@ export async function POST(req: Request) {
     const source = body.source === 'inbox' ? 'inbox' : 'customer_service'
     const table = source === 'inbox' ? 'inbox_ai_settings' : 'customer_service_settings'
     const hasAutoSendCols = source === 'customer_service'
+    const validModes = source === 'inbox' ? VALID_MODES : DESK_MODES
 
     if (op === 'get') {
       const row = await knex(table).where('organization_id', auth.orgId).first()
@@ -112,7 +116,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         data: {
-          replyMode: row?.reply_mode && VALID_MODES.has(row.reply_mode) ? row.reply_mode : 'draft',
+          replyMode: row?.reply_mode && validModes.has(row.reply_mode) ? row.reply_mode : 'draft',
           enabled: row?.enabled === true,
           hybridConfidenceThreshold: row?.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
           flagScenarios: scenarios,
@@ -151,7 +155,7 @@ export async function POST(req: Request) {
     }
 
     if (op === 'set') {
-      const replyMode = VALID_MODES.has(String(body.replyMode)) ? String(body.replyMode) : undefined
+      const replyMode = validModes.has(String(body.replyMode)) ? String(body.replyMode) : undefined
       const threshold =
         body.hybridConfidenceThreshold != null ? Math.min(1, Math.max(0, Number(body.hybridConfidenceThreshold))) : undefined
       const scenarios = body.flagScenarios !== undefined ? normalizeScenarios(body.flagScenarios) : undefined

@@ -58,7 +58,11 @@ export async function GET(req: Request) {
       // Flag info lives in the action metadata (set by the processor).
       const flagged = meta?.flagged === true
       const flagReasons = Array.isArray(meta?.flagReasons) ? meta.flagReasons : []
-      return { row, payload, participants, channel, flagged, flagReasons }
+      // Assisted mode: why this reply waits instead of sending on its own.
+      const assistedHoldReasons = Array.isArray(meta?.assisted?.holdReasons)
+        ? meta.assisted.holdReasons.filter((r: any) => r && typeof r.label === 'string').map((r: any) => ({ key: String(r.key || ''), label: String(r.label) }))
+        : []
+      return { row, payload, participants, channel, flagged, flagReasons, assistedHoldReasons }
     })
 
     // Contacts referenced by EMAIL drafts (for full-email expansion).
@@ -129,7 +133,7 @@ export async function GET(req: Request) {
       }
     }
 
-    const data = parsed.map(({ row, payload, participants, channel, flagged, flagReasons }) => {
+    const data = parsed.map(({ row, payload, participants, channel, flagged, flagReasons, assistedHoldReasons }) => {
       const first = Array.isArray(participants) ? participants[0] : null
       const contactId = payload?.contactId || null
       const isSms = channel === 'sms'
@@ -142,6 +146,8 @@ export async function GET(req: Request) {
         flagged,
         // [{ key, label }] of the scenarios this message matched. Empty unless flagged.
         flagReasons,
+        // [{ key, label }] of the Assisted gates that kept this reply from sending.
+        assistedHoldReasons,
         summary: row.summary,
         contact: {
           id: contactId,
