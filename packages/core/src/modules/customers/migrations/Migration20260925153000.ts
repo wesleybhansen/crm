@@ -30,6 +30,19 @@ function literal(value: string | null | undefined): string {
   return `'${value.replace(/'/g, "''")}'`
 }
 
+/* The dictionaries module's tables are created by that module's own
+ * migrations, which run after this one on a brand-new database (where there
+ * are no organizations to backfill anyway). Skip those statements when the
+ * table isn't there yet instead of failing the whole migrate run. */
+function whenTableExists(table: string, sql: string): string {
+  return `DO $do$
+BEGIN
+  IF to_regclass('public.${table}') IS NOT NULL THEN
+    EXECUTE $sql$${sql}$sql$;
+  END IF;
+END $do$;`
+}
+
 export class Migration20260925153000 extends Migration {
   override async up(): Promise<void> {
     this.addSql(`
@@ -70,18 +83,18 @@ export class Migration20260925153000 extends Migration {
       on conflict ("organization_id", "tenant_id", "kind", "normalized_value") do nothing;
     `)
 
-    this.addSql(`
+    this.addSql(whenTableExists('dictionaries', `
       insert into "dictionaries" ("organization_id", "tenant_id", "key", "name", "description", "is_system", "is_active", "manager_visibility", "created_at", "updated_at")
       select o."id", o."tenant_id", ${literal(CURRENCY_DICTIONARY_KEY)}, 'Currencies', 'ISO 4217 currencies', true, true, 'default', now(), now()
       from "organizations" o
       where o."deleted_at" is null
-      on conflict ("organization_id", "tenant_id", "key") do nothing;
-    `)
+      on conflict ("organization_id", "tenant_id", "key") do nothing
+    `))
 
     const currencyRows = resolveCurrencyCodes()
       .map((code) => `(${literal(code)}, ${literal(code.toLowerCase())}, ${literal(resolveCurrencyLabel(code))})`)
       .join(', ')
-    this.addSql(`
+    this.addSql(whenTableExists('dictionary_entries', `
       insert into "dictionary_entries" ("dictionary_id", "organization_id", "tenant_id", "value", "normalized_value", "label", "created_at", "updated_at")
       select d."id", d."organization_id", d."tenant_id", c.value, c.normalized_value, c.label, now(), now()
       from "dictionaries" d
@@ -91,8 +104,8 @@ export class Migration20260925153000 extends Migration {
         and not exists (
           select 1 from "dictionary_entries" e where e."dictionary_id" = d."id"
         )
-      on conflict ("dictionary_id", "organization_id", "tenant_id", "normalized_value") do nothing;
-    `)
+      on conflict ("dictionary_id", "organization_id", "tenant_id", "normalized_value") do nothing
+    `))
   }
 
   override async down(): Promise<void> {
