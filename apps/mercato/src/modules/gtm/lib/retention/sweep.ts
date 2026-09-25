@@ -13,6 +13,7 @@ import {
   GtmRenderedMessage,
 } from '../../data/entities'
 import { GLOBAL_SUPPRESSION_ORG_ID } from '../privacy/constants'
+import { expireStaleQuotedRuns, type ExpireQuotesOptions } from '../research/expire-quotes'
 
 /*
  * Candidate retention sweep (SPEC-066 section 4, Tranche 4).
@@ -49,6 +50,10 @@ import { GLOBAL_SUPPRESSION_ORG_ID } from '../privacy/constants'
  * placed under hold afterwards; over-retention under a hold is the safe
  * direction). Held rows are skipped by every rule above and counted.
  *
+ * Stale quotes: research runs quoted ('priced') but never started are moved
+ * to 'expired' after QUOTE_EXPIRY_DAYS (lib/research/expire-quotes.ts), so
+ * they stop reading as pending in the runs list.
+ *
  * Exposure: the process-secret route /internal/gtm/retention (global) and the
  * represented-user op 'retention-sweep' on /internal/gtm/research-runs. The
  * schedule is documented in RETENTION_SCHEDULE.md. The sweep is idempotent.
@@ -67,6 +72,11 @@ export interface RetentionEm {
     where: Record<string, unknown>,
     options?: { orderBy?: Record<string, 'asc' | 'desc'>; limit?: number },
   ): Promise<T[]>
+  nativeUpdate<T extends object>(
+    entityClass: new () => T,
+    where: Record<string, unknown>,
+    data: Record<string, unknown>,
+  ): Promise<number>
 }
 
 export const POST_CAMPAIGN_RETENTION_DAYS = 90
@@ -79,6 +89,8 @@ export type SweepOptions = {
   now?: Date
   postCampaignBatch?: number
   manualDraftBatch?: number
+  // releases any reservation still held by an expiring quote (lib/research/expire-quotes.ts)
+  ledger?: ExpireQuotesOptions['ledger']
 }
 
 export type SweepResult = {
@@ -99,6 +111,9 @@ export type SweepResult = {
   // expired manual outreach drafts hard-deleted regardless of candidate state
   expiredManualDraftsDeleted: number
   expiredPostRepliesDeleted: number
+  // priced research runs never started within QUOTE_EXPIRY_DAYS, moved to 'expired'
+  quotesExpired: number
+  quoteReservationsReleased: number
   // one audit event is written per swept (org, tenant) batch
   batches: number
 }
@@ -189,8 +204,15 @@ export async function sweepExpiredCandidates(
     postCampaignRenderedAnonymized: 0,
     expiredManualDraftsDeleted: 0,
     expiredPostRepliesDeleted: 0,
+    quotesExpired: 0,
+    quoteReservationsReleased: 0,
     batches: 0,
   }
+
+  // Quoted research runs nobody started stop reading as pending.
+  const quotes = await expireStaleQuotedRuns(em, { now, orgId: options?.orgId ?? null, ledger: options?.ledger ?? null })
+  result.quotesExpired = quotes.expiredRunIds.length
+  result.quoteReservationsReleased = quotes.releasedOperationIds.length
 
   // Expired manual drafts first: independent of candidate state, bounded.
   result.expiredManualDraftsDeleted = await deleteExpiredManualDrafts(em, now, options)

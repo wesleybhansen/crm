@@ -23,8 +23,18 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const { sweepExpiredCandidates } = await import('../../../lib/retention/sweep')
+    // The ledger only releases a reservation an expiring quote still holds
+    // (none by construction); an unconfigured ledger never blocks the sweep.
+    let ledger: import('../../../lib/credits/ledger').GtmCreditLedger | null = null
+    try {
+      const { getLedger } = await import('../../../lib/credits/noli-core-ledger')
+      ledger = getLedger()
+    } catch {
+      ledger = null
+    }
     const sweep = await sweepExpiredCandidates(
       em as unknown as import('../../../lib/retention/sweep').RetentionEm,
+      { ledger },
     )
     return NextResponse.json({ ok: true, sweep })
   } catch (error) {

@@ -20,6 +20,7 @@ import {
 import type { GtmResearchRun } from '../../../data/entities'
 import type { GtmCreditLedger } from '../../../lib/credits/ledger'
 import { usdFromCredits } from '../../../lib/credits/markup'
+import { effectiveRunStatus, isQuoteExpired, quoteExpiresAt } from '../../../lib/research/expire-quotes'
 
 /*
  * Internal GTM research runs (SPEC-066 sections 5, 11.2, 14 Tranche 3).
@@ -54,6 +55,10 @@ import { usdFromCredits } from '../../../lib/credits/markup'
  *             solely on keyword/industry wording, only strong or likely keeps
  *             move to review. No provider call; idempotent (checked rows are
  *             never read twice). For runs that predate limits.rescueNearMisses.
+ * Quotes expire: a 'priced' run nobody started within QUOTE_EXPIRY_DAYS reads
+ * as 'expired' in every response (lib/research/expire-quotes.ts), the daily
+ * retention sweep writes that status, and execute refuses it (409
+ * quote_expired) so the customer asks for a fresh quote.
  * - 'sweep-stale-runs' (gtm.launch) marks runs stuck in 'running' past a
  *               threshold as failed and parks their provider_started
  *               operations for reconciliation (lib/research/stale-runs.ts)
@@ -116,7 +121,8 @@ function shapeRun(run: GtmResearchRun) {
     id: run.id,
     workspaceId: run.workspaceId,
     playId: run.playId,
-    status: run.status,
+    status: effectiveRunStatus(run),
+    quote_expires_at: quoteExpiresAt(run),
     limits: run.limits ?? null,
     estimated_credits: run.estimatedCredits != null ? Number(run.estimatedCredits) : null,
     ...storedTypical(plan),
@@ -242,7 +248,8 @@ export async function POST(req: Request) {
         runs: runs.map((run) => ({
           id: run.id,
           play_id: run.playId,
-          status: run.status,
+          status: effectiveRunStatus(run),
+          quote_expires_at: quoteExpiresAt(run),
           estimated_credits: run.estimatedCredits != null ? Number(run.estimatedCredits) : null,
           ...storedTypical((run.providerPlan ?? {}) as Record<string, unknown>),
           reconciled_credits: run.reconciledCredits != null ? Number(run.reconciledCredits) : null,
@@ -651,6 +658,31 @@ export async function POST(req: Request) {
       if (!run) return opaqueNotFound()
       if (run.status !== 'priced') {
         return NextResponse.json({ ok: true, run: shapeRun(run), alreadyExecuted: true })
+      }
+      if (isQuoteExpired(run)) {
+        // A quote left unstarted past its window is never run on the old
+        // price: write the expiry now (the sweep may not have yet) and ask
+        // for a fresh quote.
+        const { expireStaleQuotedRuns } = await import('../../../lib/research/expire-quotes')
+        await expireStaleQuotedRuns(
+          em as unknown as import('../../../lib/research/expire-quotes').ExpireQuotesEm,
+          { orgId: organizationId, tenantId, runId: run.id },
+        )
+        const expired = await em.findOne(GtmResearchRun, {
+          id: run.id,
+          organizationId,
+          tenantId,
+          deletedAt: null,
+        }, { refresh: true })
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'This quote expired before it was started; get a fresh quote to run this research',
+            code: 'quote_expired',
+            run: shapeRun(expired ?? run),
+          },
+          { status: 409 },
+        )
       }
 
 

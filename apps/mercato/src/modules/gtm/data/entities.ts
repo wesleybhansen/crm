@@ -334,7 +334,8 @@ export class GtmResearchRun {
   @Property({ type: 'jsonb', nullable: true })
   limits?: Record<string, unknown> | null
 
-  // planned | priced | running | completed | failed | cancelled
+  // planned | priced | running | completed | failed | cancelled | expired
+  // (expired = priced but never started within QUOTE_EXPIRY_DAYS, lib/research/expire-quotes.ts)
   @Property({ type: 'text', default: 'planned' })
   status: string = 'planned'
 

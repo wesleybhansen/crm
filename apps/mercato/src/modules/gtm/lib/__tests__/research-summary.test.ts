@@ -173,6 +173,8 @@ describe('summarizeResearchRun (internal research-runs op summary)', () => {
       reconciledCredits: null,
       startedAt: null,
       completedAt: null,
+      // a fresh quote: past QUOTE_EXPIRY_DAYS the same run reads 'expired'
+      createdAt: new Date(),
     })
     await em.flush()
     const summary = await summarizeResearchRun(em, ctx, { runId: run.id })
@@ -191,6 +193,23 @@ describe('summarizeResearchRun (internal research-runs op summary)', () => {
       top_filters: [],
       sources_searched: [{ source: 'fixture-source', searched: false, found: 0 }],
     })
+  })
+
+  it('reports a quote nobody started within the expiry window as expired', async () => {
+    const em = new FakeEm()
+    const run = seedRun(em, seedPlay(em), {
+      status: 'priced',
+      providerPlan: { adapterPlan: [{ adapter_id: 'fixture-source' }] },
+      estimatedCredits: '2500',
+      reconciledCredits: null,
+      startedAt: null,
+      completedAt: null,
+      createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+    })
+    await em.flush()
+    const summary = await summarizeResearchRun(em, ctx, { runId: run.id })
+    expect(summary!.status).toBe('expired')
+    expect(summary!.spent_cents).toBeNull()
   })
 
   it('cost_per_accepted_cents is null when nothing was accepted even though credits were spent', async () => {
