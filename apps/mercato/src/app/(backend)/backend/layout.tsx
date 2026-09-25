@@ -1,4 +1,5 @@
 import { cookies, headers } from 'next/headers'
+import type { Metadata } from 'next'
 import Script from 'next/script'
 import { createElement, type ReactNode } from 'react'
 import { Users, Kanban, FileText, Mail, LayoutDashboard, CreditCard, Settings, CalendarDays, BookOpen, GitBranch, GitMerge, Zap, ClipboardList, MessageCircle, Share2, CheckSquare, CalendarCheck, BarChart3, Wrench, Sparkles, Headphones, Star, Mic } from 'lucide-react'
@@ -418,9 +419,22 @@ export default async function BackendLayout({ children, params }: { children: Re
   const allEntries: NavEntry[] = groups.flatMap((group) =>
     group.items.map((item) => ({ ...item, group: group.name })),
   )
-  const current = allEntries.find((item) => path.startsWith(item.href))
-  const currentTitle = current?.title || ''
+  // Longest matching nav href wins, on a path-segment boundary, so a short
+  // href such as /backend never claims every page as "Dashboard".
+  const navPath = (href: string) => href.split('?')[0].replace(/\/+$/, '')
+  const current = allEntries
+    .filter((item) => {
+      const base = navPath(item.href)
+      return base.length > 0 && (path === base || path.startsWith(`${base}/`))
+    })
+    .sort((a, b) => navPath(b.href).length - navPath(a.href).length)[0]
   const match = findBackendMatch(modules, path)
+  // The page's own title first (same value ApplyBreadcrumb sets after
+  // hydration, so the header does not flicker), then the nav entry's.
+  const routeTitle = match?.route.titleKey
+    ? translate(match.route.titleKey, match.route.title || match.route.titleKey)
+    : match?.route.title
+  const currentTitle = routeTitle || current?.title || ''
   const rawBreadcrumb = match?.route.breadcrumb
   const breadcrumb = rawBreadcrumb?.map((item) => {
     const fallback = item.label
@@ -532,6 +546,12 @@ export default async function BackendLayout({ children, params }: { children: Re
     </div>
   )
 }
+export const metadata: Metadata = {
+  // Every backend tab reads "<Page> | Noli CRM"; pages without a title of
+  // their own fall back to "Noli CRM".
+  title: { default: 'Noli CRM', template: '%s | Noli CRM' },
+}
+
 export const dynamic = 'force-dynamic'
 
 function adoptSidebarDefaults(groups: NavGroup[]): NavGroup[] {
