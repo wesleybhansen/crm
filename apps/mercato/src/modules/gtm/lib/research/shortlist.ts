@@ -74,6 +74,13 @@ export type ShortlistEm = {
 
 const JUDGE_BONUS: Record<string, number> = { strong: 30, likely: 15, possible: 0 }
 const UNCHECKED_BONUS = 5
+/* Kept by a lead check that ran before it rated fits (lead-check-v1 rows
+ * written before 2026-09-25). The check read the row and kept it, so it is
+ * scored as a likely fit rather than as nothing: on the 2026-09-25 live run the
+ * three rows the rules had ACCEPTED on exact keywords (Foster Plumbing,
+ * Commercial Plumbing Inc, Thrivaire) fell out of the top 20 behind rescued
+ * near misses because their unrated keep counted 0. */
+const KEPT_UNRATED_BONUS = JUDGE_BONUS.likely
 
 function str(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -117,7 +124,11 @@ export type RankInput = {
 /** Rank score 0..100 and its confidence band. Pure. */
 export function rankScore(input: RankInput): { score: number; confidence: ShortlistConfidence } {
   const rule = Math.max(0, Math.min(100, Number.isFinite(input.fitScore) ? input.fitScore : 0)) * 0.5
-  const judge = input.judged ? JUDGE_BONUS[input.judgeFit ?? ''] ?? 0 : UNCHECKED_BONUS
+  const judge = !input.judged
+    ? UNCHECKED_BONUS
+    : input.judgeFit == null
+      ? KEPT_UNRATED_BONUS
+      : JUDGE_BONUS[input.judgeFit] ?? 0
   const raw = rule + judge + (input.fitStatus === 'accepted' ? 10 : 0) + (input.namedPerson ? 10 : 0) + (input.contactRoute ? 5 : 0)
   const score = Math.round(Math.max(0, Math.min(100, raw)))
   return { score, confidence: score >= 80 ? 'high' : score >= 60 ? 'medium' : 'low' }
@@ -205,7 +216,7 @@ export async function buildShortlist(
     evidenceByCandidate.set(row.candidateId, list)
   }
 
-  type Scored = { entry: Omit<ShortlistEntry, 'rank'>; key: string }
+  type Scored = { entry: Omit<ShortlistEntry, 'rank'>; key: string; ruleFit: number }
   const scored: Scored[] = []
   for (const match of live) {
     const candidate = candidateById.get(match.candidateId)
@@ -233,6 +244,7 @@ export async function buildShortlist(
       .sort((a, b) => (b.observedAt?.getTime() ?? 0) - (a.observedAt?.getTime() ?? 0))
       .slice(0, EVIDENCE_PER_ROW)
     scored.push({
+      ruleFit: Number(match.fitScore ?? 0) || 0,
       key: shortlistDedupeKey(identity),
       entry: {
         candidate_id: candidate.id,
@@ -252,9 +264,12 @@ export async function buildShortlist(
     })
   }
 
-  // Best row per business, then best first; ties broken by accepted, then name.
+  // Best row per business, then best first; ties broken by accepted, then the
+  // rules' own fit score, and only then by name (a name-only tie-break
+  // delivered an alphabetical top 20 on a live run of equal scores).
   scored.sort((a, b) => b.entry.score - a.entry.score
     || (a.entry.fit_status === b.entry.fit_status ? 0 : a.entry.fit_status === 'accepted' ? -1 : 1)
+    || b.ruleFit - a.ruleFit
     || a.entry.name.localeCompare(b.entry.name))
   const seen = new Set<string>()
   const unique: Scored[] = []
