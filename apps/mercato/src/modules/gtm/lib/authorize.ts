@@ -21,7 +21,7 @@ type GtmContainer = {
 }
 
 const CAMPAIGN_READ_OPS = new Set(['list', 'analytics', 'draft-state', 'draft-sample', 'list-senders', 'status'])
-const CANDIDATE_READ_OPS = new Set(['list', 'detail'])
+const CANDIDATE_READ_OPS = new Set(['list', 'detail', 'shortlist'])
 const CHAT_READ_OPS = new Set(['thread-list', 'messages'])
 const ENRICHMENT_READ_OPS = new Set(['plan', 'status'])
 const DECISION_MAKER_READ_OPS = new Set(['plan', 'status'])

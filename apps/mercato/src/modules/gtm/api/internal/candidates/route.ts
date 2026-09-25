@@ -35,6 +35,9 @@ import { latestMatchForCandidate } from '../../../lib/research/match-projection'
  *            true in that case.
  * - 'review' manual verdict override for one candidate; the change writes a
  *            gtm_audit_events row in the same transaction
+ * - 'shortlist' ranked top N (default 20) of the given runs' CURRENT
+ *            accepted/review rows, deduped by business, with evidence and a
+ *            contact route; never an email value (lib/research/shortlist.ts)
  * - 'export' explicit, audited reviewed-lead export: latest play-contextual
  *            accepted people only, verified + unsuppressed email only, and
  *            explicit evidence-export permission (lib/candidate-export.ts)
@@ -217,6 +220,19 @@ export async function POST(req: Request) {
       })
 
       return NextResponse.json({ ok: true, candidate: shapeCandidate(result.candidate) })
+    }
+
+    if (body.op === 'shortlist') {
+      // The ranked top-N behind the Launch Pad guarantee (lib/research/shortlist.ts).
+      // Malformed run ids are dropped like foreign ones: they match nothing.
+      const runIds = (body.runIds ?? []).filter((id) => isUuid(id))
+      const { buildShortlist } = await import('../../../lib/research/shortlist')
+      const result = await buildShortlist(
+        em as unknown as import('../../../lib/research/shortlist').ShortlistEm,
+        { organizationId, tenantId },
+        { runIds, limit: body.limit },
+      )
+      return NextResponse.json({ ok: true, ...result })
     }
 
     if (body.op === 'detail') {

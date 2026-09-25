@@ -114,6 +114,43 @@ async function seed(em: FakeEm) {
 }
 
 describe('requalifyResearchRun', () => {
+  it('keeps a rescued near miss in review while the rules still reject it only on the keyword/industry match', async () => {
+    const em = new FakeEm()
+    const { run, vet } = await seed(em)
+    vet.identity = { ...vet.identity, urls: ['https://www.google.com/maps/place/?q=place_id:vet'] }
+    vet.qualification = { judge: { verdict: 'keep', fit: 'likely', rescued: true }, rescued_from: 'required_criterion_mismatch' }
+    await em.flush()
+    await requalifyResearchRun({ em, run, actorUserId: USER })
+    const [stored] = await em.find(GtmCandidate, { id: vet.id })
+    expect(stored.fitStatus).toBe('review')
+    expect(stored.rejectReason).toBe('listing_near_miss_ai_kept')
+    expect((stored.qualification as Record<string, unknown>).judge).toMatchObject({ rescued: true })
+  })
+
+  it('does not hold a rescue once the rules reject the row for anything else (geography)', async () => {
+    const em = new FakeEm()
+    const { run, vet } = await seed(em)
+    vet.identity = { ...vet.identity, country_code: 'CA', urls: ['https://www.google.com/maps/place/?q=place_id:vet'] }
+    vet.qualification = { judge: { verdict: 'keep', fit: 'strong', rescued: true } }
+    await em.flush()
+    await requalifyResearchRun({ em, run, actorUserId: USER })
+    const [stored] = await em.find(GtmCandidate, { id: vet.id })
+    expect(stored.fitStatus).toBe('rejected')
+    expect(stored.rejectReason).toBe('outside_play_geography')
+  })
+
+  it('a keep that was not a rescue never lifts a rule rejection', async () => {
+    const em = new FakeEm()
+    const { run, vet } = await seed(em)
+    vet.identity = { ...vet.identity, urls: ['https://www.google.com/maps/place/?q=place_id:vet'] }
+    vet.qualification = { judge: { verdict: 'keep', fit: 'possible', rescued: false } }
+    await em.flush()
+    await requalifyResearchRun({ em, run, actorUserId: USER })
+    const [stored] = await em.find(GtmCandidate, { id: vet.id })
+    expect(stored.fitStatus).toBe('rejected')
+    expect(stored.rejectReason).toBe('required_criterion_mismatch')
+  })
+
   it('never resurrects a lead the AI lead check rejected', async () => {
     const em = new FakeEm()
     const { run, dental } = await seed(em)

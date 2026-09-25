@@ -729,6 +729,7 @@ export async function POST(req: Request) {
         maxRawCandidates?: number
         maxCandidates?: number
         maxCredits?: number
+        rescueNearMisses?: boolean
       }
       const frozenSourceRouting = frozenProviderPlan.sourceRouting as OpportunitySourceRoutingInput | undefined
       const currentPlan = buildSourcePlan(
@@ -796,6 +797,22 @@ export async function POST(req: Request) {
         requestId: requestId || null,
       })
 
+      // The funnel above was counted BEFORE the lead check moved rows. A
+      // caller that records "found" from it counts rows the check has already
+      // withdrawn (2026-09-25 audit: the hub reported 11, the member had 5).
+      // These are the run's counts as they stand now, after the check.
+      const countScope = { organizationId, tenantId, researchRunId: run.id, deletedAt: null }
+      const [acceptedNow, reviewNow] = await Promise.all([
+        em.count(GtmCandidateMatch, { ...countScope, fitStatus: 'accepted' }),
+        em.count(GtmCandidateMatch, { ...countScope, fitStatus: 'review' }),
+      ])
+      const afterLeadCheck = {
+        accepted: acceptedNow,
+        review: reviewNow,
+        rescued: leadCheck.status === 'checked' ? leadCheck.rescued : 0,
+        lead_check: leadCheck.status,
+      }
+
       await em.transactional(async (tem) => {
         const audit = tem.create(GtmAuditEvent, {
           organizationId,
@@ -817,14 +834,15 @@ export async function POST(req: Request) {
             stop_reason: result.funnel.stopReason,
             reconciliation_required: result.reconciliationRequired,
             lead_check: leadCheck.status === 'checked'
-              ? { checked: leadCheck.checked, rejected: leadCheck.rejected }
+              ? { checked: leadCheck.checked, rejected: leadCheck.rejected, rescued: leadCheck.rescued }
               : { skipped: leadCheck.reason },
+            after_lead_check: afterLeadCheck,
           },
         })
         tem.persist(audit)
       })
 
-      return NextResponse.json({ ok: true, run: shapeRun(run), result })
+      return NextResponse.json({ ok: true, run: shapeRun(run), result: { ...result, after_lead_check: afterLeadCheck } })
     }
 
     if (body.op === 'requalify') {

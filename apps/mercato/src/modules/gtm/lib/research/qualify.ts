@@ -134,6 +134,11 @@ export const FIT_REASONS = {
   // confirms the size on the prospect's own site instead of triaging a queue
   // that can never be resolved from the provider data.
   acceptedSizeUnconfirmed: 'accepted_size_unconfirmed',
+  // Never emitted by the rules. Set only by the AI lead check's opt-in
+  // near-miss rescue (lib/research/judge.ts): a Maps listing the rules
+  // rejected on the literal keyword/industry match that the check rated a
+  // strong or likely fit, moved to review for the member to confirm.
+  nearMissAiKept: 'listing_near_miss_ai_kept',
 } as const
 
 /*

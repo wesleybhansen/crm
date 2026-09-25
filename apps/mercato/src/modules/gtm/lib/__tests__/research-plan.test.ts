@@ -1200,6 +1200,24 @@ describe('buildSourcePlan pricing and limits', () => {
     if (first.ok && second.ok) expect(first.planHash).toBe(second.planHash)
   })
 
+  it('binds the opt-in near-miss rescue into the quote only when asked', () => {
+    const plain = buildSourcePlan(executablePlay, adapters, { maxCandidates: 10 })
+    const unset = buildSourcePlan(executablePlay, adapters, { maxCandidates: 10, rescueNearMisses: false })
+    const rescue = buildSourcePlan(executablePlay, adapters, { maxCandidates: 10, rescueNearMisses: true })
+    expect(plain.ok && unset.ok && rescue.ok).toBe(true)
+    if (plain.ok && unset.ok && rescue.ok) {
+      // Off (absent or false) keeps every existing quote byte-identical.
+      expect(unset.planHash).toBe(plain.planHash)
+      expect('rescueNearMisses' in plain.limits).toBe(false)
+      // On is part of the confirmed quote: it cannot be added at execute time.
+      expect(rescue.limits.rescueNearMisses).toBe(true)
+      expect(rescue.planHash).not.toBe(plain.planHash)
+      // Re-pricing from the stored limits reproduces the same hash.
+      const repriced = buildSourcePlan(executablePlay, adapters, rescue.limits)
+      expect(repriced.ok && repriced.planHash).toBe(rescue.planHash)
+    }
+  })
+
   it('does not plan a provider whose customer-use rights are provisional', () => {
     const provisional: SourceAdapter = {
       descriptor: {

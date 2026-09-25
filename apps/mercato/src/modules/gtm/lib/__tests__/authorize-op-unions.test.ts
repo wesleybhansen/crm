@@ -84,7 +84,7 @@ const TABLES: Table[] = [
     name: 'candidates',
     schema: validators.gtmCandidatesBodySchema,
     resolve: candidateFeatureForOp,
-    readOps: ['list', 'detail'],
+    readOps: ['list', 'detail', 'shortlist'],
   },
   {
     name: 'manual-outreach (borrows the candidate table)',
