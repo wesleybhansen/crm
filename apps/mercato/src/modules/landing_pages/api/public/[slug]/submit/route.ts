@@ -3,6 +3,7 @@ import { createPersonContact } from '@/modules/customers/lib/contact-write'
 import { findOrMergeContact as findContactByEmail } from '@/modules/customers/lib/dedup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-triggers'
 import { trackEngagement } from '@/modules/customers/lib/engagement-score'
@@ -276,8 +277,10 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           attributeReferral(knex, page.organization_id, page.tenant_id, email).catch(() => {})
         }
 
-        // Log activity on the contact
-        await knex('customer_activities').insert({
+        // Log activity on the contact. Raw insert of encrypted-by-design
+        // columns (subject/body), so the row is encrypted first. Don't fail the
+        // submission if activity logging fails; never log it in plaintext.
+        await encryptRowForRawWrite('customers:customer_activity', {
           id: require('crypto').randomUUID(),
           tenant_id: page.tenant_id,
           organization_id: page.organization_id,
@@ -288,7 +291,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           occurred_at: new Date(),
           created_at: new Date(),
           updated_at: new Date(),
-        }).catch(() => {})  // Don't fail the submission if activity logging fails
+        }, page.tenant_id, page.organization_id, em)
+          .then((row) => knex('customer_activities').insert(row))
+          .catch(() => {})
       } catch (err) {
         console.error('[landing_pages.submit] contact creation failed (non-blocking)', err)
       }

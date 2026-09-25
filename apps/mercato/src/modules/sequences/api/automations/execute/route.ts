@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
 
 /**
  * Execute automations for a deal stage change.
@@ -137,8 +138,9 @@ export async function POST(req: Request) {
           }
 
           case 'notify': {
-            // Create a notification/activity log
-            await knex('customer_activities').insert({
+            // Create a notification/activity log (subject is encrypted-by-design;
+            // raw insert, so encrypt the row first; skip the log on failure).
+            await encryptRowForRawWrite('customers:customer_activity', {
               id: require('crypto').randomUUID(),
               tenant_id: auth.tenantId,
               organization_id: auth.orgId,
@@ -148,7 +150,9 @@ export async function POST(req: Request) {
               occurred_at: new Date(),
               created_at: new Date(),
               updated_at: new Date(),
-            }).catch(() => {})
+            }, auth.tenantId, auth.orgId, em)
+              .then((row) => knex('customer_activities').insert(row))
+              .catch(() => {})
             results.push({ automationId: auto.id, action: 'notify', success: true })
             break
           }

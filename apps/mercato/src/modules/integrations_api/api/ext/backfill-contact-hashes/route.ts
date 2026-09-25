@@ -1,18 +1,24 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { hashForLookup, isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/aes'
 import {
   decryptRowFields,
   CONTACT_ENTITY_KEY,
 } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 export const metadata = {
   path: '/ext/backfill-contact-hashes',
   POST: { requireAuth: true, requireFeatures: ['integrations_api.access'] },
 }
 
-const CIPHERTEXT = /^[A-Za-z0-9+/=]{10,}:[A-Za-z0-9+/=]{8,}:[A-Za-z0-9+/=]{8,}:v1$/
+// One shared envelope parser (v1, v1.<keyId>, v2). A private v1-only regex
+// here missed every v2 envelope and would have hashed ciphertext.
+// A field decryptRowFields could not open comes back as the placeholder text;
+// hashing that would poison the lookup column just the same.
+const isCiphertext = (value: unknown): boolean =>
+  isEncryptedEnvelope(value) || value === UNDECRYPTABLE_DISPLAY_TEXT
 const BATCH = 500
 
 /* One-off, idempotent, org-scoped backfill of the contact lookup-hash columns.
@@ -59,12 +65,12 @@ export async function POST(_req: Request, ctx: any) {
         const email = String(row.primary_email || '')
         // A value that is still ciphertext after decryption is unreadable with
         // the current keys; hashing it would just poison the lookup column.
-        if (email && !CIPHERTEXT.test(email)) patch.primary_email_hash = hashForLookup(email)
+        if (email && !isCiphertext(email)) patch.primary_email_hash = hashForLookup(email)
         else unreadable += 1
       }
       if (stored.phone) {
         const digits = String(row.primary_phone || '').replace(/\D/g, '')
-        if (digits && !CIPHERTEXT.test(String(row.primary_phone))) {
+        if (digits && !isCiphertext(row.primary_phone)) {
           patch.primary_phone_hash = hashForLookup(digits)
         }
       }

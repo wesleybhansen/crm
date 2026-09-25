@@ -1,3 +1,5 @@
+import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
+
 /* Signature enrichment: when a known contact emails in, parse their signature
  * block and fill in fields the CRM is missing (phone, job title, LinkedIn,
  * company name). Deterministic parsing only — no LLM, no cost, runs on every
@@ -77,6 +79,9 @@ export function parseSignature(bodyText: string | null | undefined, senderName?:
 
 type QueryFn = (sql: string, params: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>
 
+/** Encrypts a raw-write row for an entity (tests inject a stub). */
+type EncryptRow = (entityId: string, row: Record<string, unknown>, tenantId: string, orgId: string) => Promise<Record<string, unknown>>
+
 /** Fill ONLY missing contact fields from a parsed signature. Returns which
  * fields were filled (for timeline logging). */
 export async function enrichContactFromSignature(
@@ -84,12 +89,14 @@ export async function enrichContactFromSignature(
   orgId: string,
   contactId: string,
   parsed: ParsedSignature,
+  encryptRow: EncryptRow = (entityId, row, tenantId, organizationId) =>
+    encryptRowForRawWrite(entityId, row, tenantId, organizationId),
 ): Promise<string[]> {
   if (!parsed.phone && !parsed.jobTitle && !parsed.linkedinUrl && !parsed.companyName) return []
   const filled: string[] = []
 
   const { rows: entityRows } = await query(
-    `SELECT ce.primary_phone, cp.job_title, cp.linkedin_url
+    `SELECT ce.tenant_id, ce.primary_phone, cp.job_title, cp.linkedin_url
        FROM customer_entities ce
        LEFT JOIN customer_people cp ON cp.entity_id = ce.id
       WHERE ce.id = $1 AND ce.organization_id = $2 AND ce.deleted_at IS NULL`,
@@ -97,18 +104,25 @@ export async function enrichContactFromSignature(
   )
   const current = entityRows[0]
   if (!current) return []
+  const tenantId = String(current.tenant_id ?? '')
 
+  // primary_phone and job_title are encrypted-by-design columns and these are
+  // raw UPDATEs, so the values are encrypted here (and the phone lookup hash
+  // filled) exactly as the ORM subscriber would. The "missing" checks above
+  // stay valid on ciphertext: only null/empty counts as missing.
   if (parsed.phone && !current.primary_phone) {
+    const enc = await encryptRow('customers:customer_entity', { primary_phone: parsed.phone.slice(0, 40) }, tenantId, orgId)
     await query(
-      `UPDATE customer_entities SET primary_phone = $1, updated_at = now() WHERE id = $2 AND organization_id = $3`,
-      [parsed.phone.slice(0, 40), contactId, orgId],
+      `UPDATE customer_entities SET primary_phone = $1, primary_phone_hash = $2, updated_at = now() WHERE id = $3 AND organization_id = $4`,
+      [enc.primary_phone, enc.primary_phone_hash ?? null, contactId, orgId],
     )
     filled.push('phone')
   }
   if (parsed.jobTitle && !current.job_title) {
+    const enc = await encryptRow('customers:customer_person_profile', { job_title: parsed.jobTitle.slice(0, 120) }, tenantId, orgId)
     await query(
       `UPDATE customer_people SET job_title = $1, updated_at = now() WHERE entity_id = $2 AND organization_id = $3`,
-      [parsed.jobTitle.slice(0, 120), contactId, orgId],
+      [enc.job_title, contactId, orgId],
     )
     filled.push('job title')
   }

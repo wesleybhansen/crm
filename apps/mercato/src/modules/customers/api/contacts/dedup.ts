@@ -6,6 +6,9 @@
  */
 
 import type { Knex } from 'knex'
+import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
+import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type FindResult =
   | { existing: true; contactId: string }
@@ -186,15 +189,27 @@ export async function mergeContacts(
       .where('organization_id', orgId)
       .update({ deleted_at: now, updated_at: now })
 
-    // 13. Log merge as activity on the primary contact
-    await trx('customer_activities').insert({
+    // 13. Log merge as activity on the primary contact. display_name is
+    // stored encrypted, so open it before it goes into the subject (it used
+    // to embed the ciphertext), and encrypt the activity row: subject is an
+    // encrypted-by-design column and this is a raw insert.
+    const tenantId = secondaryContact?.tenant_id ? String(secondaryContact.tenant_id) : null
+    let secondaryName = secondaryId
+    if (secondaryContact && tenantId) {
+      await decryptRowFields(null, CONTACT_ENTITY_KEY, [secondaryContact], ['display_name'], tenantId, orgId)
+      const name = typeof secondaryContact.display_name === 'string' ? secondaryContact.display_name : ''
+      if (name && name !== UNDECRYPTABLE_DISPLAY_TEXT) secondaryName = name
+    }
+    const activity = await encryptRowForRawWrite('customers:customer_activity', {
       id: require('crypto').randomUUID(),
+      tenant_id: tenantId,
       organization_id: orgId,
       entity_id: primaryId,
       activity_type: 'contact_merged',
-      subject: `Merged with ${secondaryContact?.display_name || secondaryId}`,
+      subject: `Merged with ${secondaryName}`,
       created_at: now,
-    })
+    }, tenantId, orgId)
+    await trx('customer_activities').insert(activity)
   })
 
   return { merged: true, primaryId, secondaryId }

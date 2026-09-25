@@ -3,6 +3,7 @@ import { createPersonContact } from '@/modules/customers/lib/contact-write'
 import { findOrMergeContact as findContactByEmail } from '@/modules/customers/lib/dedup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
@@ -253,9 +254,11 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           } catch {}
         }
 
-        // Log activity
+        // Log activity. subject/body are encrypted-by-design columns and this
+        // is a raw insert, so the row is encrypted here (the ORM subscriber
+        // never sees it). A failure skips the log; it never writes plaintext.
         if (contactId) {
-          await knex('customer_activities').insert({
+          await encryptRowForRawWrite('customers:customer_activity', {
             id: require('crypto').randomUUID(),
             tenant_id: form.tenant_id,
             organization_id: form.organization_id,
@@ -266,7 +269,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
             occurred_at: now,
             created_at: now,
             updated_at: now,
-          }).catch(() => {})
+          }, form.tenant_id, form.organization_id, em)
+            .then((row) => knex('customer_activities').insert(row))
+            .catch(() => {})
         }
       } catch (err) {
         console.error('[forms.submit] contact creation failed (non-blocking)', err)
