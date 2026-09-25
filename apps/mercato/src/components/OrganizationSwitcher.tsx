@@ -176,7 +176,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
       const params = new URLSearchParams()
       if (targetTenant) params.set('tenantId', targetTenant)
       const search = params.toString()
-      const url = `/api/org-switcher${search ? `?${search}` : ''}`
+      const url = `/api/directory/organization-switcher${search ? `?${search}` : ''}`
       const call = await apiCall<OrganizationSwitcherPayload>(url)
       if (abortRef?.current) return
       if (call.status === 401 || call.status === 403) {
