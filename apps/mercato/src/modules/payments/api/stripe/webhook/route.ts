@@ -5,6 +5,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { findOrMergeContact } from '@/modules/customers/lib/dedup'
+import {
+  claimLandingPageCheckout,
+  completeLandingPageCheckout,
+  releaseLandingPageCheckout,
+} from '../../../services/public-checkout'
 import { insertContactNote } from '../../../../customers/lib/contact-notes'
 
 export const metadata = { POST: { requireAuth: false } }
@@ -13,6 +18,10 @@ export async function POST(req: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
   if (!stripeKey) return NextResponse.json({ error: 'Not configured' }, { status: 500 })
+
+  // A landing-page checkout this delivery claimed; handed back if it fails so
+  // Stripe's retry can process it.
+  let releaseLandingClaim: (() => Promise<void>) | null = null
 
   try {
     const Stripe = (await import('stripe')).default
@@ -72,6 +81,34 @@ export async function POST(req: Request) {
         }
       }
 
+      // Public checkouts (offers and CRM landing pages, services/public-checkout.ts):
+      // the session must be one a published page started, the event must come
+      // from the business account it was created on, and exactly one delivery
+      // claims it. The org comes from our own row, never from metadata alone.
+      let landingCheckoutId: string | null = null
+      if (meta.landingPageCheckoutId) {
+        const verdict = await claimLandingPageCheckout(knex, {
+          checkoutId: meta.landingPageCheckoutId,
+          sessionId: session.id,
+          connectedAccountId,
+          metaOrgId: meta.orgId || null,
+        })
+        if (verdict.kind === 'reject') {
+          console.warn('[stripe.webhook] landing-page checkout ignored:', verdict.reason, event.id)
+          return NextResponse.json({ received: true, ignored: true })
+        }
+        if (verdict.kind === 'duplicate') return NextResponse.json({ received: true, duplicate: true })
+        if (verdict.kind === 'busy') {
+          // Another delivery is recording it right now; a non-2xx makes Stripe retry later.
+          return NextResponse.json({ received: false, retry: true }, { status: 409 })
+        }
+        landingCheckoutId = String(verdict.row.id)
+        orgId = String(verdict.row.organization_id)
+        tenantId = String(verdict.row.tenant_id)
+        const claimedId = landingCheckoutId
+        releaseLandingClaim = () => releaseLandingPageCheckout(knex, claimedId)
+      }
+
       if (!orgId || !tenantId) {
         console.warn('[stripe.webhook] Could not resolve org for event', event.id)
         return NextResponse.json({ received: true })
@@ -88,6 +125,13 @@ export async function POST(req: Request) {
         .where('organization_id', orgId)
         .first()
       if (alreadyProcessed) {
+        if (landingCheckoutId) {
+          await completeLandingPageCheckout(knex, landingCheckoutId, {
+            paymentRecordId: alreadyProcessed.id ?? null,
+            contactId: alreadyProcessed.contact_id ?? null,
+          })
+          releaseLandingClaim = null
+        }
         return NextResponse.json({ received: true, duplicate: true })
       }
 
@@ -669,12 +713,20 @@ export async function POST(req: Request) {
         }
       }
 
+      if (landingCheckoutId) {
+        await completeLandingPageCheckout(knex, landingCheckoutId, { paymentRecordId, contactId: resolvedContactId })
+        releaseLandingClaim = null
+      }
+
       console.log(`[stripe.webhook] Payment completed: $${(session.amount_total || 0) / 100} from ${session.customer_email} (account: ${connectedAccountId || 'platform'})`)
     }
 
     return NextResponse.json({ received: true })
   } catch (error) {
     console.error('[stripe.webhook]', error)
+    if (releaseLandingClaim) {
+      await releaseLandingClaim().catch((releaseErr: unknown) => console.error('[stripe.webhook] landing-page claim release failed:', releaseErr))
+    }
     return NextResponse.json({ error: 'Webhook error' }, { status: 400 })
   }
 }

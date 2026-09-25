@@ -82,7 +82,8 @@ function mockTable(name: string): unknown {
     insert(values: Row | Row[]) {
       const list = Array.isArray(values) ? values : [values]
       ;(mockDb.tables[table] ??= []).push(...list.map((v) => ({ ...v })))
-      return Object.assign(Promise.resolve(list.map(() => 1)), { returning: async () => list })
+      const done = Promise.resolve(list.map(() => 1))
+      return Object.assign(done, { returning: async () => list, onConflict: () => ({ ignore: () => done, merge: () => done }) })
     },
     update(values: Row) {
       const hit = rows()
@@ -155,9 +156,22 @@ jest.mock('@open-mercato/core/modules/customers/lib/sourceTagging', () => ({ tag
 jest.mock('@/modules/calendar/lib/google-calendar-service', () => ({ getGoogleBusyTimes: async () => [], createGoogleCalendarEvent: async () => null }))
 jest.mock('@/modules/calendar/lib/booking-emails', () => ({ sendBookingConfirmationToGuest: async () => undefined, sendBookingNotificationToOwner: async () => undefined }))
 jest.mock('@/lib/timeline', () => ({ logTimelineEvent: async () => undefined }))
+// Stripe is never called: the connected account reads as able to charge and
+// the Checkout Session is a stub whose URL the browser test intercepts.
+const mockStripeCreate = jest.fn(async (_params: unknown, _opts: unknown) => ({ id: 'cs_test_browser', url: 'https://checkout.stripe.com/c/pay/cs_test_browser' }))
+jest.mock('stripe', () => ({
+  __esModule: true,
+  default: class {
+    accounts = { retrieve: async (id: string) => ({ id, charges_enabled: true }) }
+    checkout = { sessions: { create: (params: unknown, opts: unknown) => mockStripeCreate(params, opts) } }
+  },
+}))
 
 const MOCK_ROUTES = [
   'landing_pages/api/public/[slug]/submit/route',
+  'landing_pages/api/public/[slug]/checkout/route',
+  'landing_pages/api/public/[slug]/thank-you/route',
+  'payments/api/public/offers/[offerId]/checkout/route',
   'landing_pages/api/public/[slug]/route',
   'landing_pages/api/funnels/public/[slug]/upsell/route',
   'landing_pages/api/funnels/public/[slug]/route',
@@ -281,13 +295,49 @@ function landingHtml(slug: string, formAction: string): string {
   }, { title: 'Waitlist', slug }, formAction)
 }
 
+const PRODUCT = '22222222-2222-4222-8222-222222222222'
+
+function sellHtml(slug: string): string {
+  return renderWizardPageHtml({
+    wizardVersion: 2,
+    pageType: 'sell-digital',
+    subType: 'ebook',
+    styleId: 'minimal',
+    productId: PRODUCT,
+    generatedSections: [{ type: 'hero', headline: 'The field guide', subtitle: 'Instant download', ctaText: 'Buy now' } as never],
+    formFields: [{ label: 'Email', type: 'email', required: true }],
+  }, { title: 'Field guide', slug }, `${baseUrl}/api/landing_pages/public/${slug}/submit`)
+}
+
+const OFFER = '33333333-3333-4333-8333-333333333333'
+
+/** A marketing page's buy button for an offer (what an AMS page ships). */
+function offerButtonHtml(): string {
+  return `<!doctype html><html><body><button id="buy">Buy the guide</button><script>
+document.getElementById('buy').addEventListener('click', function () {
+  fetch('${baseUrl}/api/payments/public/offers/${OFFER}/checkout', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId: 'offer-browser-1', returnUrl: 'https://pages.noliai.com/guide/thanks', pageRef: 'ams:page:guide' })
+  }).then(function (r) { return r.json() }).then(function (r) { if (r.url) window.location.href = r.url; else document.title = 'ERR ' + r.error })
+})
+</script></body></html>`
+}
+
 function seed(): void {
   const now = new Date()
   mockDb.tables = {
     landing_pages: [
       { id: 'lp-1', slug: 'waitlist', title: 'Waitlist', status: 'published', deleted_at: null, organization_id: ORG, tenant_id: TENANT, published_html: landingHtml('waitlist', `${baseUrl}/api/landing_pages/public/waitlist/submit`) },
+      { id: 'lp-3', slug: 'guide', title: 'Field guide', status: 'published', deleted_at: null, organization_id: ORG, tenant_id: TENANT, config: { productId: PRODUCT, thankYouHeadline: 'Enjoy the guide' }, published_html: sellHtml('guide') },
+      // Published before the public checkout existed: it calls the old URL.
+      { id: 'lp-4', slug: 'old-guide', title: 'Old guide', status: 'published', deleted_at: null, organization_id: ORG, tenant_id: TENANT, config: { productId: PRODUCT }, published_html: sellHtml('old-guide').split(`${baseUrl}/api/landing_pages/public/old-guide/checkout`).join(`${baseUrl}/api/landing-page-checkout`) },
+      { id: 'lp-5', slug: 'offer-page', title: 'Offer page', status: 'published', deleted_at: null, organization_id: ORG, tenant_id: TENANT, config: {}, published_html: offerButtonHtml() },
       { id: 'lp-2', slug: 'funnel-optin', title: 'Opt in', status: 'published', deleted_at: null, organization_id: ORG, tenant_id: TENANT, published_html: landingHtml('funnel-optin', `${baseUrl}/api/landing_pages/public/funnel-optin/submit`) },
     ],
+    products: [{ id: PRODUCT, organization_id: ORG, tenant_id: TENANT, name: 'Field guide', price: 19, currency: 'USD', billing_type: 'one_time', is_active: true, deleted_at: null }],
+    stripe_connections: [{ organization_id: ORG, is_active: true, stripe_account_id: 'acct_business' }],
+    landing_page_checkouts: [],
+    checkout_offers: [{ id: OFFER, organization_id: ORG, tenant_id: TENANT, product_id: PRODUCT, course_id: null, mode: 'payment', success_url_hosts: ['pages.noliai.com'], allowed_upsell_offer_ids: [], active: true }],
     landing_page_forms: [
       { id: 'form-1', landing_page_id: 'lp-1', fields: JSON.stringify([{ name: 'email', label: 'Email', required: true }]), success_message: 'You are on the list.' },
       { id: 'form-2', landing_page_id: 'lp-2', fields: '[]', success_message: 'Thanks!' },
@@ -312,6 +362,8 @@ describeInBrowser('customer pages under the CSP sandbox (Chromium)', () => {
 
   beforeAll(async () => {
     process.env.OM_TEST_MODE = '1'
+    // A placeholder: the 'stripe' module is mocked above, nothing reaches Stripe.
+    process.env.STRIPE_SECRET_KEY = 'sk_test_browser_placeholder'
     jest.spyOn(console, 'error').mockImplementation(() => undefined)
     jest.spyOn(console, 'warn').mockImplementation(() => undefined)
     server = http.createServer((req, res) => {
@@ -332,6 +384,7 @@ describeInBrowser('customer pages under the CSP sandbox (Chromium)', () => {
     await browser?.close()
     await new Promise<void>((resolve) => server?.close(() => resolve()))
     delete process.env.OM_TEST_MODE
+    delete process.env.STRIPE_SECRET_KEY
   })
 
   beforeEach(async () => {
@@ -385,6 +438,65 @@ describeInBrowser('customer pages under the CSP sandbox (Chromium)', () => {
     expect(stored).not.toHaveProperty('_aff_ref')
     // The referral cookie reached the submit handler via the hidden field.
     expect(mockAttribute).toHaveBeenCalledWith(mockKnex, ORG, TENANT, 'dana@example.com', undefined, 'partner_7')
+  })
+
+  for (const slug of ['guide', 'old-guide']) {
+    it(`landing page checkout (${slug}): the buy button reaches Stripe Checkout on the business account, then the thank-you page`, async () => {
+      mockStripeCreate.mockClear()
+      const page = await context.newPage()
+      const stripeHits: string[] = []
+      await page.route('https://checkout.stripe.com/**', (route: any) => {
+        stripeHits.push(route.request().url())
+        return route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Stripe Checkout (stub)</h1>' })
+      })
+      const res = await page.goto(`${baseUrl}/api/landing_pages/public/${slug}`)
+      expect(res.headers()['content-security-policy']).toBe(PUBLIC_SANDBOX_CSP)
+      await expectOpaqueOrigin(page)
+
+      await page.fill('#email', 'buyer@example.com')
+      await Promise.all([
+        page.waitForURL('https://checkout.stripe.com/c/pay/cs_test_browser', { timeout: 10_000 }),
+        page.click('#lp-form [type="submit"]'),
+      ])
+      expect(stripeHits).toEqual(['https://checkout.stripe.com/c/pay/cs_test_browser'])
+
+      const [post] = postsTo(`/api/landing_pages/public/${slug}/checkout`)
+      expect(post).toMatchObject({ origin: 'null', cookie: null })
+      // (No OPTIONS assertion here: with page.route() active, Playwright's
+      // interception answers Chromium's CORS preflight itself. The landing
+      // page test above, which routes nothing, sees the real preflight.)
+      const [params, opts] = mockStripeCreate.mock.calls[0] as [any, any]
+      expect(opts.stripeAccount).toBe('acct_business')
+      expect(params.line_items[0].price_data.unit_amount).toBe(1900)
+      expect(params.customer_email).toBe('buyer@example.com')
+      expect(mockDb.tables.landing_page_checkouts).toHaveLength(1)
+
+      // Stripe sends the buyer back to the success URL.
+      const back = await page.goto(params.success_url.replace('{CHECKOUT_SESSION_ID}', 'cs_test_browser'))
+      expect(back.status()).toBe(200)
+      expect(back.headers()['content-security-policy']).toBe(PUBLIC_SANDBOX_CSP)
+      await page.waitForSelector('text=Field guide')
+      expect(await page.textContent('body')).toContain('$19.00')
+    })
+  }
+
+  it('offer checkout: a sandboxed page buys an offer and lands on Stripe Checkout on the business account', async () => {
+    mockStripeCreate.mockClear()
+    const page = await context.newPage()
+    await page.route('https://checkout.stripe.com/**', (route: any) => route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Stripe Checkout (stub)</h1>' }))
+    await page.goto(`${baseUrl}/api/landing_pages/public/offer-page`)
+    await expectOpaqueOrigin(page)
+    await Promise.all([
+      page.waitForURL('https://checkout.stripe.com/c/pay/cs_test_browser', { timeout: 10_000 }),
+      page.click('#buy'),
+    ])
+    const [post] = postsTo(`/api/payments/public/offers/${OFFER}/checkout`)
+    expect(post).toMatchObject({ origin: 'null', cookie: null })
+    const [params, opts] = mockStripeCreate.mock.calls[0] as [any, any]
+    expect(opts.stripeAccount).toBe('acct_business')
+    expect(params.line_items[0].price_data.unit_amount).toBe(1900)
+    expect(params.success_url).toBe('https://pages.noliai.com/guide/thanks?checkout_session_id={CHECKOUT_SESSION_ID}')
+    expect(mockDb.tables.landing_page_checkouts[0]).toMatchObject({ source: 'offer', offer_id: OFFER, page_ref: 'ams:page:guide' })
   })
 
   it('funnel: opt-in page advances to the upsell, declining lands on the thank-you page', async () => {

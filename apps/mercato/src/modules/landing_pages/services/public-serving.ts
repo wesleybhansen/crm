@@ -170,11 +170,20 @@ export function visitorContextScript(fields: Record<string, string | null | unde
 
 const UTM_CAPTURE_SCRIPT = `<script>(function(){try{var p=new URLSearchParams(window.location.search);var u=['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];var r=document.referrer||'';document.querySelectorAll('form').forEach(function(f){u.forEach(function(k){var v=p.get(k);if(v){var h=document.createElement('input');h.type='hidden';h.name='_'+k;h.value=v;f.appendChild(h)}});if(r){var rh=document.createElement('input');rh.type='hidden';rh.name='_referrer';rh.value=r;f.appendChild(rh)}})}catch(e){}})()</script>`
 
-function normalizeHtml(html: string, opts: { makeApiUrlsRelative: boolean }): string {
+const LEGACY_CHECKOUT_URL = /(?:https?:\/\/[a-zA-Z0-9.:\-]+)?\/api\/landing-page-checkout\b/g
+
+export function normalizeHtml(html: string, opts: { makeApiUrlsRelative: boolean; slug?: string | null }): string {
   // Older publishes baked "/api/landing-pages/..." (hyphen) form actions; the
   // module dispatcher only serves "/api/landing_pages/..." (underscore).
   let out = html
     .split('/api/landing-pages/public/').join('/api/landing_pages/public/')
+  // Wizard pages published before 2026-09-25 call "/api/landing-page-checkout",
+  // which never existed. Point them at this page's public checkout (relative,
+  // so it works on custom domains too); the server prices the page's own
+  // configured product whatever the old body says.
+  if (opts.slug) {
+    out = out.replace(LEGACY_CHECKOUT_URL, `/api/landing_pages/public/${encodeURIComponent(opts.slug)}/checkout`)
+  }
   out = normalizeLegacyLandingPageImageUrls(out)
   if (opts.makeApiUrlsRelative) {
     // On custom domains, absolute form actions pointing at the CRM host would
@@ -254,7 +263,7 @@ export async function servePublishedLandingPage(
     _ab_arm: abActive ? arm : null,
     _aff_ref: affiliateRef,
   })
-  html = normalizeHtml(html, { makeApiUrlsRelative: !!opts.makeApiUrlsRelative })
+  html = normalizeHtml(html, { makeApiUrlsRelative: !!opts.makeApiUrlsRelative, slug: page.slug })
   // Split on the LAST </body> via lastIndexOf: String.replace would also
   // interpret `$` patterns in the injected script.
   const bodyClose = html.lastIndexOf('</body>')

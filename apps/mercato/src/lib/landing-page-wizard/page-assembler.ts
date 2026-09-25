@@ -506,6 +506,9 @@ function checkoutScript(productId: string, slug: string): string {
   var form = document.getElementById('lp-form');
   if (!form) return;
   var submitting = false;
+  function newRequestId() { return (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 40); }
+  var requestId = newRequestId();
+  window.addEventListener('pageshow', function(ev) { if (ev.persisted) { submitting = false; var b = form.querySelector('[type="submit"]'); if (b) { b.disabled = false; b.textContent = 'Buy Now'; } } });
   form.addEventListener('submit', function(e) {
     e.preventDefault();
     if (submitting) return;
@@ -525,10 +528,11 @@ function checkoutScript(productId: string, slug: string): string {
       .catch(function() { alert('Something went wrong.'); submitting = false; if (btn) { btn.disabled = false; btn.textContent = 'Buy Now'; } });
       return;
     }
-    fetch('${escJs(base)}/api/landing-page-checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId: '${escJs(productId)}', email: data.email || data.Email || '', name: data.name || data.Name || '', landingPageSlug: '${escJs(slug)}' }) })
+    // The server prices the page's saved product; one request id per attempt.
+    fetch('${escJs(base)}/api/landing_pages/public/${escJs(encodeURIComponent(slug))}/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId: '${escJs(productId)}', email: data.email || data.Email || '', name: data.name || data.Name || '', requestId: requestId }) })
     .then(function(r) { return r.json(); })
-    .then(function(r) { if (r.ok && r.checkoutUrl) { window.location.href = r.checkoutUrl; } else { alert(r.error || 'Checkout unavailable.'); submitting = false; if (btn) { btn.disabled = false; btn.textContent = 'Buy Now'; } } })
-    .catch(function() { alert('Something went wrong.'); submitting = false; if (btn) { btn.disabled = false; btn.textContent = 'Buy Now'; } });
+    .then(function(r) { if (r.ok && r.url) { window.location.href = r.url; } else { alert(r.error || 'Checkout unavailable.'); requestId = newRequestId(); submitting = false; if (btn) { btn.disabled = false; btn.textContent = 'Buy Now'; } } })
+    .catch(function() { alert('Something went wrong.'); requestId = newRequestId(); submitting = false; if (btn) { btn.disabled = false; btn.textContent = 'Buy Now'; } });
   });
 })();
 </script>`

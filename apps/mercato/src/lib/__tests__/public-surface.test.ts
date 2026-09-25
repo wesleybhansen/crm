@@ -14,6 +14,8 @@ const MODULES = path.resolve(__dirname, '../../modules')
 // Every PUBLIC_SANDBOX_ENDPOINTS entry: an example path and the route file.
 const ENDPOINT_ROUTES: Array<{ example: string; file: string }> = [
   { example: '/api/landing_pages/public/my-page/submit', file: 'landing_pages/api/public/[slug]/submit/route.ts' },
+  { example: '/api/landing_pages/public/my-page/checkout', file: 'landing_pages/api/public/[slug]/checkout/route.ts' },
+  { example: '/api/payments/public/offers/0b1c/checkout', file: 'payments/api/public/offers/[offerId]/checkout/route.ts' },
   { example: '/api/landing_pages/funnels/public/f/advance', file: 'landing_pages/api/funnels/public/[slug]/advance/route.ts' },
   { example: '/api/landing_pages/funnels/public/f/upsell', file: 'landing_pages/api/funnels/public/[slug]/upsell/route.ts' },
   { example: '/api/landing_pages/funnels/public/f/checkout', file: 'landing_pages/api/funnels/public/[slug]/checkout/route.ts' },

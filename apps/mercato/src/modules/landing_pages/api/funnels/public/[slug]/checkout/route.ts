@@ -3,12 +3,24 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
+import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import {
+  NOT_SET_UP_MESSAGE,
+  SlidingWindowLimiter,
+  accountCanCharge,
+  connectedAccountFor,
+} from '../../../../../../payments/services/public-checkout'
 
 export const metadata = {
   // Public funnel checkout, reached by signed-out visitors.
   GET: { requireAuth: false },
-  POST: { requireAuth: false },
+  POST: { requireAuth: false, rateLimit: { points: 20, duration: 600, blockDuration: 600, keyPrefix: 'funnel-public-checkout' } },
 }
+
+// Per instance: one visitor, 10 checkout starts per 10 minutes per funnel;
+// one funnel, 120 per 10 minutes overall (same limits as landing pages).
+const perIpFunnelLimiter = new SlidingWindowLimiter({ max: 10, windowMs: 10 * 60 * 1000 })
+const perFunnelLimiter = new SlidingWindowLimiter({ max: 120, windowMs: 10 * 60 * 1000 })
 
 /** A product of the funnel's own organization and tenant, or null. */
 async function funnelProduct(knex: any, funnel: { organization_id: string; tenant_id?: string | null }, productId: unknown) {
@@ -169,6 +181,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
     if (!email?.trim()) return NextResponse.json({ ok: false, error: 'Email is required' }, { status: 400 })
 
+    const ip = getClientIp(req, 1) ?? 'unknown'
+    if (perIpFunnelLimiter.hit(`${ip}:${slug}`) || perFunnelLimiter.hit(slug)) {
+      return NextResponse.json({ ok: false, error: 'Too many checkout attempts. Please wait a few minutes and try again.' }, { status: 429 })
+    }
+
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
@@ -180,20 +197,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
     const config = typeof step.config === 'string' ? JSON.parse(step.config) : (step.config || {})
 
-    // Get org's Stripe connection
-    const stripeConnection = await knex('stripe_connections')
-      .where('organization_id', funnel.organization_id)
-      .where('is_active', true)
-      .first()
-
+    // The funnel owner's own connected Stripe account, able to take charges.
+    // The session is created ON that account: the money goes to the business.
     const stripeKey = process.env.STRIPE_SECRET_KEY
-    if (!stripeKey || !stripeConnection?.stripe_account_id) {
-      return NextResponse.json({ ok: false, error: 'Payment processing is not configured' }, { status: 400 })
+    const stripeAccountId = await connectedAccountFor(knex, funnel.organization_id)
+    if (!stripeKey || !stripeAccountId) {
+      return NextResponse.json({ ok: false, error: NOT_SET_UP_MESSAGE }, { status: 400 })
     }
 
     // Get product for this step (the funnel owner's own product only)
     const product = step.product_id ? await funnelProduct(knex, funnel, step.product_id) : null
-    if (!product) return NextResponse.json({ ok: false, error: 'No product configured for this checkout step' }, { status: 400 })
+    if (!product) return NextResponse.json({ ok: false, error: NOT_SET_UP_MESSAGE }, { status: 400 })
 
     // Build line items
     const lineItems: any[] = [{
@@ -248,6 +262,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
     const Stripe = (await import('stripe')).default
     const stripe = new Stripe(stripeKey, { apiVersion: '2024-12-18.acacia' as any })
+    if (!(await accountCanCharge(stripe as any, stripeAccountId))) {
+      return NextResponse.json({ ok: false, error: NOT_SET_UP_MESSAGE }, { status: 400 })
+    }
 
     const baseUrl = process.env.APP_URL || 'http://localhost:3000'
 
@@ -284,7 +301,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       success_url: successUrl,
       cancel_url: `${baseUrl}/api/landing_pages/funnels/public/${slug}/checkout?sid=${session.id}&step=${step.id}`,
     }, {
-      stripeAccount: stripeConnection.stripe_account_id,
+      stripeAccount: stripeAccountId,
     })
 
     // Create pending funnel order
