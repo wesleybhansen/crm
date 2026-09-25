@@ -18,6 +18,7 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { renderToolCatalogForPrompt } from '@/modules/customers/lib/crm-tool-catalog'
 import { observeScoutUsage, type ScoutUsageObservation } from '@/modules/customers/lib/scout-usage-observation'
+import { contextSectionUnavailable } from '@/modules/customers/lib/assistant-read-result'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
 
 export const openApi = {
@@ -344,7 +345,10 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
     } else {
       sections.push('PIPELINE: No deals yet')
     }
-  } catch {}
+  } catch (err) {
+    console.error('[ai.assistant] deals context failed', err)
+    sections.push(contextSectionUnavailable('PIPELINE', 'deals'))
+  }
 
   try {
     // Tasks
@@ -362,7 +366,10 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
         `"${t.title}"${t.due_date ? ` (due ${new Date(t.due_date).toLocaleDateString()})` : ''}`
       ).join('; '))
     }
-  } catch {}
+  } catch (err) {
+    console.error('[ai.assistant] tasks context failed', err)
+    sections.push(contextSectionUnavailable('TASKS', 'tasks'))
+  }
 
   try {
     // Invoices
@@ -406,14 +413,21 @@ async function buildDataContext(knex: any, orgId: string, tenantId: string, em: 
     const events = await knex('events')
       .where('organization_id', orgId).whereNull('deleted_at')
       .whereIn('status', ['draft', 'published'])
+      .where('start_time', '>=', new Date())
       .select('title', 'status', 'start_time', 'attendee_count', 'capacity')
       .orderBy('start_time', 'asc').limit(5)
     if (events.length > 0) {
       sections.push('UPCOMING EVENTS: ' + events.map((e: any) =>
         `"${e.title}" — ${new Date(e.start_time).toLocaleDateString()} (${e.attendee_count}${e.capacity ? `/${e.capacity}` : ''} registered, ${e.status})`
       ).join('; '))
+    } else {
+      sections.push('UPCOMING EVENTS: none scheduled')
     }
-  } catch {}
+  } catch (err) {
+    // A failed read must not look like "no events" to Scout.
+    console.error('[ai.assistant] events context failed', err)
+    sections.push(contextSectionUnavailable('UPCOMING EVENTS', 'events'))
+  }
 
   try {
     // Courses
