@@ -1,6 +1,6 @@
-import { hashForLookup } from './aes'
 import { createKmsService } from './kms'
 import { LOOKUP_HASH_RULES } from './lookupHashRules'
+import { contactLookupHasher } from './lookupKey'
 import { REQUIRED_ENCRYPTION_ENTITY_IDS, TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 
@@ -46,11 +46,13 @@ export async function encryptRowForRawWrite<T extends Record<string, unknown>>(
   }
 
   const out: Record<string, unknown> = { ...row }
-  for (const rule of LOOKUP_HASH_RULES[entityId] ?? []) {
+  const rules = LOOKUP_HASH_RULES[entityId] ?? []
+  const hasher = rules.length ? await contactLookupHasher(tenantId) : null
+  for (const rule of rules) {
     if (!Object.prototype.hasOwnProperty.call(out, rule.sourceColumn)) continue
     const raw = out[rule.sourceColumn]
     const normalized = typeof raw === 'string' ? rule.normalize(raw) : ''
-    out[rule.targetColumn] = normalized ? hashForLookup(normalized) : null
+    out[rule.targetColumn] = hasher!.write(normalized)
   }
   // An entity every tenant must encrypt throws on a map miss instead of
   // handing plaintext back for the caller to write.

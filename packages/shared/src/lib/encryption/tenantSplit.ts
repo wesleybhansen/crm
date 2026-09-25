@@ -46,8 +46,11 @@ import {
  *   5. the organization's blind search tokens are deleted (they are keyed by
  *      the tenant key) and rebuilt after commit;
  *   6. organization_tenant_moves and the ledger are written.
- * Email/phone lookup hashes are unkeyed sha256 (aes.ts hashForLookup) and
- * survive the move unchanged.
+ * Contact email/phone lookup hashes are keyed by the tenant key since
+ * 2026-09-25 (lookupKey.ts); moved rows keep their old-tenant hashes, which
+ * readers of the new tenant do not match. Run
+ * `rehash-contact-lookups --tenant <new tenant> --execute` after a split.
+ * users.email_hash stays unkeyed (sign-in has no tenant yet).
  *
  * A dry run executes exactly the same statements and the verification inside
  * the transaction, then ROLLS BACK: it proves the run, not an estimate of it.

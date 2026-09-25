@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import crypto from 'crypto'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { contactLookupHasher } from '@open-mercato/shared/lib/encryption/lookupKey'
 import { createFakeKnex } from '@/modules/customers/lib/__tests__/support/fake-knex'
 
 /**
@@ -37,6 +38,11 @@ function signed(body: unknown): Request {
 const ADDRESS = 'Ada@Example.com'
 const CIPHERTEXT = 'aXY=:Y3Q=:dGFn:v2:0011aabb'
 
+let KEYED_T4 = ''
+beforeAll(async () => {
+  KEYED_T4 = (await contactLookupHasher('t4')).write('ada@example.com') as string
+})
+
 function seed() {
   knex = createFakeKnex({
     customer_entities: [
@@ -46,11 +52,20 @@ function seed() {
       { id: 'legacy', tenant_id: 't2', organization_id: 'o2', primary_email: 'ada@example.com', primary_email_hash: null, email_status: null },
       // Someone else.
       { id: 'other', tenant_id: 't1', organization_id: 'o1', primary_email: CIPHERTEXT, primary_email_hash: hashForLookup('bob@example.com'), email_status: null },
+      // Written after the keyed-hash rollout (M10): per-tenant HMAC.
+      { id: 'keyed', tenant_id: 't4', organization_id: 'o4', primary_email: CIPHERTEXT, primary_email_hash: KEYED_T4, email_status: null },
       // Already hard bounced: a soft bounce must not downgrade it.
       { id: 'hard', tenant_id: 't3', organization_id: 'o3', primary_email: CIPHERTEXT, primary_email_hash: hashForLookup('ada@example.com'), email_status: 'hard_bounced' },
     ],
     email_unsubscribes: [],
     email_messages: [],
+    // Lookup hashes are keyed per tenant: the webhook asks each tenant.
+    tenants: [
+      { id: 't1', deleted_at: null },
+      { id: 't2', deleted_at: null },
+      { id: 't3', deleted_at: null },
+      { id: 't4', deleted_at: null },
+    ],
   })
 }
 
@@ -66,9 +81,10 @@ describe('email webhook suppression', () => {
     expect(status('legacy')).toBe('hard_bounced')
     expect(status('other')).toBeNull()
     const unsubs = knex.db.tables.email_unsubscribes!
-    expect(unsubs.map((u) => u.contact_id).sort()).toEqual(['enc', 'hard', 'legacy'])
+    expect(status('keyed')).toBe('hard_bounced')
+    expect(unsubs.map((u) => u.contact_id).sort()).toEqual(['enc', 'hard', 'keyed', 'legacy'])
     expect(unsubs.every((u) => u.reason === 'hard_bounce')).toBe(true)
-    expect((dispatchWebhook as jest.Mock).mock.calls.map((c) => c[1]).sort()).toEqual(['o1', 'o2', 'o3'])
+    expect((dispatchWebhook as jest.Mock).mock.calls.map((c) => c[1]).sort()).toEqual(['o1', 'o2', 'o3', 'o4'])
   })
 
   it('soft bounce marks matches but never downgrades a hard bounce', async () => {
@@ -86,7 +102,7 @@ describe('email webhook suppression', () => {
     expect(status('enc')).toBe('complained')
     expect(status('legacy')).toBe('complained')
     expect(status('other')).toBeNull()
-    expect(knex.db.tables.email_unsubscribes!.map((u) => u.contact_id).sort()).toEqual(['enc', 'hard', 'legacy'])
+    expect(knex.db.tables.email_unsubscribes!.map((u) => u.contact_id).sort()).toEqual(['enc', 'hard', 'keyed', 'legacy'])
   })
 
   it('an event with no address touches nothing', async () => {

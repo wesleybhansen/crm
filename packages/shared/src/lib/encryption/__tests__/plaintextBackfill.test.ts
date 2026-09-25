@@ -9,6 +9,7 @@ import {
 } from '../aes'
 import type { KmsService, TenantDek } from '../kms'
 import { TenantDataEncryptionService, UNDECRYPTABLE_DISPLAY_TEXT } from '../tenantDataEncryptionService'
+import { deriveLookupKey, keyedLookupHash } from '../lookupKey'
 import {
   BackfillRefusedError,
   BackfillVerificationError,
@@ -59,10 +60,11 @@ class FakeDb implements BackfillDb {
       const rows = this.maps.filter((m) => m.entity_id === params[0]).map((m) => ({ fields_json: m.fields_json }))
       return { rows: rows as any, rowCount: rows.length }
     }
-    let m = /^select id from "(\w+)" where organization_id = \$1 and "(\w+)" = \$2 and deleted_at is null and id <> \$3 limit 1$/.exec(s)
+    let m = /^select id from "(\w+)" where organization_id = \$1 and "(\w+)" = any\(\$2::text\[\]\) and deleted_at is null and id <> \$3 limit 1$/.exec(s)
     if (m) {
+      const wanted = params[1] as string[]
       const rows = this.tables[m[1]!]!.rows.filter(
-        (r) => r.organization_id === params[0] && r[m![2]!] === params[1] && r.deleted_at == null && r.id !== params[2],
+        (r) => r.organization_id === params[0] && wanted.includes(r[m![2]!] as string) && r.deleted_at == null && r.id !== params[2],
       ).slice(0, 1).map((r) => ({ id: r.id }))
       return { rows: rows as any, rowCount: rows.length }
     }
@@ -129,6 +131,8 @@ function pick(row: BackfillRow, cols: string[]): BackfillRow {
 }
 
 const keyFor = (tenantId: string) => crypto.createHash('sha256').update(`test-root:${tenantId}`).digest('base64')
+/** The per-tenant keyed lookup hash the backfill writes (lookupKey.ts, M10). */
+const keyedFor = (tenantId: string, normalized: string) => keyedLookupHash(deriveLookupKey(keyFor(tenantId)), normalized)
 
 class FixedKms implements KmsService {
   isHealthy() { return true }
@@ -407,8 +411,9 @@ describe('runPlaintextBackfill', () => {
     })
     const report = await runPlaintextBackfill(db, service, { dryRun: false })
     const rows = db.tables.customer_entities!.rows
-    expect(rows[0]!.primary_email_hash).toBe(hashForLookup('ada@example.com'))
-    expect(rows[0]!.primary_phone_hash).toBe(hashForLookup('15550100100'))
+    const tenant = String(rows[0]!.tenant_id)
+    expect(rows[0]!.primary_email_hash).toBe(keyedFor(tenant, 'ada@example.com'))
+    expect(rows[0]!.primary_phone_hash).toBe(keyedFor(tenant, '15550100100'))
     expect(rows[1]!.primary_email_hash).toBe(existingHash)
     expect(report.fields.get(`${org}|customer_entities|primary_email`)).toMatchObject({ hashFilled: 1 })
     expect(report.fields.get(`${org}|customer_entities|primary_phone`)).toMatchObject({ hashFilled: 1 })
@@ -424,7 +429,7 @@ describe('runPlaintextBackfill', () => {
     })
     const report = await runPlaintextBackfill(db, service, { dryRun: false, batchSize: 1 })
     const rows = db.tables.customer_entities!.rows
-    const h = hashForLookup('dup@example.com')
+    const h = keyedFor(String(rows[0]!.tenant_id), 'dup@example.com')
     expect(rows[0]!.primary_email_hash).toBe(h)
     expect(rows[1]!.primary_email_hash ?? null).toBeNull()
     expect(rows[2]!.primary_email_hash).toBe(h)

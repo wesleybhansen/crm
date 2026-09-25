@@ -7,7 +7,7 @@ import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
-import { whereContactEmail } from '@/modules/customers/lib/contact-lookup'
+import { contactLookupForTenant, whereContactEmail } from '@/modules/customers/lib/contact-lookup'
 import { decryptRowsForDisplay } from '@/modules/customers/lib/display-decrypt'
 import { BLIND_SEARCH_ID_CAP, blindSearchIds } from '@open-mercato/core/modules/customers/lib/blindSearch'
 
@@ -127,7 +127,7 @@ export async function POST(req: Request, ctx: any) {
     // contact written through the encrypting path, so the old plaintext
     // equality never matched and each retry created a duplicate.
     if (email) {
-      const existing = await whereContactEmail(knex('customer_entities'), email)
+      const existing = await whereContactEmail(knex('customer_entities'), email, await contactLookupForTenant(scope.tenantId))
         .where('organization_id', scope.orgId)
         .whereNull('deleted_at')
         .first()

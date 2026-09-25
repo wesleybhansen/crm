@@ -49,7 +49,11 @@ RUN mkdir -p /app/.runtime-tools \
  && yarn exec esbuild scripts/split-tenants.ts \
       --bundle --platform=node --format=cjs --target=node24 \
       --external:pg-native \
-      --outfile=/app/.runtime-tools/split-tenants.cjs
+      --outfile=/app/.runtime-tools/split-tenants.cjs \
+ && yarn exec esbuild scripts/rehash-contact-lookups.ts \
+      --bundle --platform=node --format=cjs --target=node24 \
+      --external:pg-native \
+      --outfile=/app/.runtime-tools/rehash-contact-lookups.cjs
 
 # Dev stage: install + build packages only, no production build; run dev server with watch
 FROM node:24-alpine AS dev
@@ -153,6 +157,7 @@ COPY --from=builder /app/.runtime-tools/reindex-customer-search.cjs /app/scripts
 # One tenant per customer: move every org but the kept one into its own tenant,
 # re-keying its data (dry run unless --execute; --verify-only). See the script header.
 COPY --from=builder /app/.runtime-tools/split-tenants.cjs /app/scripts/split-tenants.cjs
+COPY --from=builder /app/.runtime-tools/rehash-contact-lookups.cjs /app/scripts/rehash-contact-lookups.cjs
 
 # Copy Railway entrypoint script
 COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh

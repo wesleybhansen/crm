@@ -9,7 +9,7 @@
  */
 
 import type { Knex } from 'knex'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { contactLookupHasher } from '@open-mercato/shared/lib/encryption/lookupKey'
 import { blindSearchIds } from '@open-mercato/core/modules/customers/lib/blindSearch'
 
 /**
@@ -31,7 +31,9 @@ export async function findOrMergeContact(
   em?: any,
 ): Promise<FindResult> {
   if (!email) return { existing: null }
-  const normalized = email.toLowerCase()
+  // Same normalisation the writers hash (lookupHashRules: lower + trim).
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) return { existing: null }
 
   // 1) Fast path: exact match on plaintext primary_email.
   const plain = await knex('customer_entities')
@@ -41,12 +43,14 @@ export async function findOrMergeContact(
     .first()
   if (plain) return { existing: { id: plain.id, primary_email: plain.primary_email } }
 
-  // 1b) Hash fast path: primary_email_hash is the sha256 of the normalized
-  // plaintext, written by the encryption subscriber and backfilled. This is
+  // 1b) Hash fast path: primary_email_hash is the per-tenant keyed hash of the
+  // normalized plaintext (or the legacy sha256 until the rehash has run),
+  // written by the encryption subscriber and backfilled. This is
   // what makes encrypted contacts O(1) instead of the decrypt-scan below —
   // the scan stays only as a fallback for rows written before the hash existed.
+  const hasher = await contactLookupHasher(tenantId)
   const hashed = await knex('customer_entities')
-    .where('primary_email_hash', hashForLookup(normalized))
+    .whereIn('primary_email_hash', hasher.candidates(normalized))
     .where('organization_id', orgId)
     .whereNull('deleted_at')
     .first()
@@ -118,7 +122,7 @@ export async function findContactByPhone(
 
   // Hash fast path (digits-normalized), same contract as the email one above.
   const hashed = await knex('customer_entities')
-    .where('primary_phone_hash', hashForLookup(needle))
+    .whereIn('primary_phone_hash', (await contactLookupHasher(tenantId)).candidates(needle))
     .where('organization_id', orgId)
     .whereNull('deleted_at')
     .first()

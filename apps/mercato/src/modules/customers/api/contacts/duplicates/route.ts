@@ -7,7 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
-import { emailLookupHash, normalizeEmailForLookup } from '@/modules/customers/lib/contact-lookup'
+import { contactLookupForTenant, emailLookupHashes, normalizeEmailForLookup } from '@/modules/customers/lib/contact-lookup'
 
 export async function GET() {
   const auth = await getAuthFromCookies()
@@ -44,12 +44,18 @@ export async function GET() {
     const legacy = truncated ? hashless.slice(0, MAX_HASHLESS) : hashless
     await decryptRowFields(em, CONTACT_ENTITY_KEY, legacy, ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
 
+    // Groups are keyed by the normalised address when it is readable (lookup
+    // hashes are keyed per tenant and exist in two formats while the rehash
+    // rollout runs), else by the stored hash.
+    const hasher = await contactLookupForTenant(auth.tenantId)
     const keyed: Array<{ key: string; email: string; row: any }> = []
+    const legacyHashes: string[] = []
     for (const row of legacy) {
       // Anything still unreadable is skipped rather than grouped together.
       const email = normalizeEmailForLookup(String(row.primary_email || ''))
       if (!email || !email.includes('@')) continue
-      keyed.push({ key: emailLookupHash(email)!, email, row })
+      keyed.push({ key: `e:${email}`, email, row })
+      legacyHashes.push(...emailLookupHashes(hasher, email))
     }
     // Belt and braces for a database without that unique index: hashed rows
     // that share a hash are grouped in SQL (hashes only, no values).
@@ -60,7 +66,7 @@ export async function GET() {
       .groupBy('primary_email_hash')
       .havingRaw('count(*) > 1')
       .select('primary_email_hash')).map((r: { primary_email_hash: string }) => String(r.primary_email_hash))
-    const hashes = Array.from(new Set([...keyed.map((k) => k.key), ...sharedHashes]))
+    const hashes = Array.from(new Set([...legacyHashes, ...sharedHashes]))
     const hashed = hashes.length
       ? await knex('customer_entities')
         .where('organization_id', auth.orgId)
@@ -70,7 +76,8 @@ export async function GET() {
       : []
     await decryptRowFields(em, CONTACT_ENTITY_KEY, hashed, ['display_name', 'primary_email'], auth.tenantId, auth.orgId)
     for (const row of hashed) {
-      keyed.push({ key: String(row.primary_email_hash), email: normalizeEmailForLookup(String(row.primary_email || '')), row })
+      const email = normalizeEmailForLookup(String(row.primary_email || ''))
+      keyed.push({ key: email.includes('@') ? `e:${email}` : `h:${String(row.primary_email_hash)}`, email, row })
     }
 
     const groups: Record<string, { email: string; contacts: any[] }> = {}

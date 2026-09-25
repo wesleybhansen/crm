@@ -5,8 +5,8 @@ import { REQUIRED_ENCRYPTION_ENTITY_IDS, TenantDataEncryptionService } from './t
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
-import { hashForLookup } from './aes'
 import { LOOKUP_HASH_RULES } from './lookupHashRules'
+import { contactLookupHasher } from './lookupKey'
 import { SearchIndexTracker } from './searchIndexSync'
 
 type Scoped = {
@@ -178,13 +178,15 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     // encryption. Encrypted-at-rest values use a random IV and can never be
     // matched in SQL; these deterministic hashes are what webhook dedup, SMS
     // resolution and the receptionist match on instead of a decrypt-scan.
+    // Keyed per tenant (lookupKey.ts, 2026-09-25 review M10).
     const hashRules = LOOKUP_HASH_RULES[entityId]
     const hashUpdates: Record<string, unknown> = {}
     if (hashRules) {
+      const hasher = await contactLookupHasher(tenantId)
       for (const rule of hashRules) {
         const raw = (target as Record<string, unknown>)[rule.source]
         const normalized = typeof raw === 'string' ? rule.normalize(raw) : ''
-        hashUpdates[rule.target] = normalized ? hashForLookup(normalized) : null
+        hashUpdates[rule.target] = hasher.write(normalized)
       }
     }
     // The flushing EntityManager's transaction is used for the map lookup

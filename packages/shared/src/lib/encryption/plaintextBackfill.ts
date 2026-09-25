@@ -27,9 +27,9 @@ import {
   keyIdForDek,
   keyIdFromEnvelope,
 } from './aes'
-import { hashForLookup } from './aes'
 import type { TenantDek } from './kms'
 import { LOOKUP_HASH_RULES } from './lookupHashRules'
+import { contactLookupHasher } from './lookupKey'
 import type { EncryptedFieldRule } from './tenantDataEncryptionService'
 
 /** Same text as tenantDataEncryptionService.UNDECRYPTABLE_DISPLAY_TEXT (kept literal to avoid a runtime import cycle). */
@@ -433,17 +433,19 @@ export async function runPlaintextBackfill(
             write.hashes.set(rule.hashField, encrypted[rule.hashField])
           }
         }
+        const hasher = lookupRules.length ? await contactLookupHasher(tenantId, encryption) : null
         for (const rule of lookupRules) {
           const source = write.values.get(rule.sourceColumn)
           if (!source || row[rule.targetColumn] != null) continue
           const normalized = rule.normalize(source.before)
           if (!normalized) continue
-          const hash = hashForLookup(normalized)
+          // Keyed per tenant (lookupKey.ts); a holder of either format is the same person.
+          const hash = hasher!.write(normalized) as string
           if (rule.uniquePerOrg && row.deleted_at == null) {
             const claimKey = `${organizationId}|${rule.targetColumn}|${hash}`
             const { rows: holders } = await q.query(
-              `select id from ${ident(table)} where organization_id = $1 and ${ident(rule.targetColumn)} = $2 and deleted_at is null and id <> $3 limit 1`,
-              [organizationId, hash, id],
+              `select id from ${ident(table)} where organization_id = $1 and ${ident(rule.targetColumn)} = any($2::text[]) and deleted_at is null and id <> $3 limit 1`,
+              [organizationId, hasher!.candidates(normalized), id],
             )
             if (holders.length || claimedHashes.has(claimKey)) {
               if (countStats) bump(report.fields, statKey(rule.sourceColumn), 'hashDuplicate')

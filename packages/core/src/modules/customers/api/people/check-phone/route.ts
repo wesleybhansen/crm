@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '../../../data/entities'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { contactLookupHasher } from '@open-mercato/shared/lib/encryption/lookupKey'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
@@ -53,13 +53,17 @@ export async function GET(req: Request) {
   // primary_phone is encrypted at rest, so a regexp over the stored value
   // never matched an encrypted contact. Match the digits lookup hash; the
   // plaintext arm only covers legacy rows that have no hash yet.
-  qb.andWhere(
-    "(person.primary_phone_hash = ? or (person.primary_phone_hash is null and person.primary_phone is not null and regexp_replace(person.primary_phone, '\\D', '', 'g') = ?))",
-    [hashForLookup(parse.data.digits), parse.data.digits],
-  )
-  if (auth.tenantId) {
-    qb.andWhere({ tenantId: auth.tenantId })
+  // Lookup hashes are keyed per tenant (lookupKey.ts): the caller's tenant
+  // is required, and both the keyed and (during rollout) legacy hash match.
+  if (!auth.tenantId) {
+    return NextResponse.json({ match: null })
   }
+  const phoneHashes = (await contactLookupHasher(auth.tenantId)).candidates(parse.data.digits)
+  qb.andWhere(
+    `(person.primary_phone_hash in (${phoneHashes.map(() => '?').join(', ')}) or (person.primary_phone_hash is null and person.primary_phone is not null and regexp_replace(person.primary_phone, '\\D', '', 'g') = ?))`,
+    [...phoneHashes, parse.data.digits],
+  )
+  qb.andWhere({ tenantId: auth.tenantId })
   qb.andWhere({ organizationId: { $in: Array.from(allowedOrgIds) } })
   qb.limit(1)
 
