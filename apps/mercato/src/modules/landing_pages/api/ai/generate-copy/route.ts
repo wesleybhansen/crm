@@ -6,6 +6,8 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { SECTION_DEFINITIONS, OFFER_QUESTIONS, BASE_CRAFT_RULES, COPY_EXEMPLARS } from '@/lib/landing-page-wizard/constants'
+import { NO_INVENTED_CLAIMS_RULE, guardGeneratedSections, hasSocialProofInput, describeRemovedClaims } from '@/lib/landing-page-wizard/claims-guard'
+import { captureGoalRule } from '@/lib/landing-page-wizard/capture-copy'
 import type {
   PageType,
   SubType,
@@ -255,7 +257,9 @@ Use this as the actual price in the value-stack section. Calculate a believable 
       : ''
 
     // Layer 5 + 6: Rules and output format combined into user prompt
+    const goalRule = pageType === 'capture-leads' ? captureGoalRule(subType) : ''
     const baseRules = `- No fake testimonials. Only generate testimonial content if the user provided social proof data in their answers above. If no social proof was provided, use a placeholder headline like "What Our Customers Say" and set items to an empty array.
+${NO_INVENTED_CLAIMS_RULE}${goalRule ? `\n${goalRule}` : ''}
 ${BASE_CRAFT_RULES}
 - For pricing sections, only include a price if the user provided one. Always include an "items" array with 4-6 bullet points summarizing what's included (e.g., [{title: "12 Video Modules", description: "Self-paced learning"}, ...]).`
 
@@ -332,10 +336,21 @@ No markdown, no explanation, just valid JSON.`
       }
     }
 
+    // Strip numbers/results/testimonials the user never gave us.
+    const guarded = guardGeneratedSections(result.sections, {
+      sources: businessContext,
+      hasSocialProof: hasSocialProofInput(businessContext.offerAnswers),
+    })
+    if (guarded.flags.length > 0) {
+      console.info('[landing-page-ai.generate-copy] removed unsourced claims', guarded.flags.map((f) => `${f.path}: ${f.claim}`))
+    }
+
     return NextResponse.json({
       ok: true,
       data: {
-        sections: result.sections,
+        sections: guarded.sections,
+        removedClaims: guarded.flags.length,
+        removedClaimsNotice: describeRemovedClaims(guarded.flags),
         metaTitle: result.metaTitle || `${businessContext.businessName}`,
         metaDescription: result.metaDescription || '',
         thankYouHeadline: result.thankYouHeadline || 'Thank you!',

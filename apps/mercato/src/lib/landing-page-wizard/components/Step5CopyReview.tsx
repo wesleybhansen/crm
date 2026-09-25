@@ -24,6 +24,7 @@ export function Step5CopyReview({ wizard }: Props) {
   const { state, setGeneratedCopy, updateSection, removeSection, reorderSections, selectHeadlineVariant, selectCtaVariant, setThankYou, nextStep } = wizard
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [claimsNotice, setClaimsNotice] = useState<string | null>(null)
   const [refineInputs, setRefineInputs] = useState<Record<number, string>>({})
   const [refiningIndex, setRefiningIndex] = useState<number | null>(null)
 
@@ -53,12 +54,13 @@ export function Step5CopyReview({ wizard }: Props) {
       })
       const data = await res.json()
       if (data.ok && data.data) {
+        setClaimsNotice(typeof data.data.removedClaimsNotice === 'string' ? data.data.removedClaimsNotice : null)
         setGeneratedCopy(data.data.sections, data.data.metaTitle, data.data.metaDescription, data.data.thankYouHeadline || 'Thank you!', data.data.thankYouMessage || "We'll be in touch soon.")
       } else {
         setError(data.error || 'Failed to generate copy')
       }
     } catch {
-      setError('Network error — please try again')
+      setError('Network error. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -88,7 +90,7 @@ export function Step5CopyReview({ wizard }: Props) {
         setError(data.error || 'Section refinement failed')
       }
     } catch {
-      setError('Failed to refine section — please try again')
+      setError('Failed to refine section. Please try again.')
     }
     setRefiningIndex(null)
   }
@@ -124,7 +126,7 @@ export function Step5CopyReview({ wizard }: Props) {
         <Loader2 className="size-8 animate-spin mx-auto mb-4 text-muted-foreground" />
         <h2 className="text-lg font-semibold mb-1">Generating your copy...</h2>
         <p className="text-sm text-muted-foreground">
-          Creating {state.sections.length} sections tailored to your offer. This usually takes 10-20 seconds.
+          Creating {state.sections.length === 1 ? '1 section' : `${state.sections.length} sections`} tailored to your offer. This usually takes 10-20 seconds.
         </p>
       </div>
     )
@@ -147,6 +149,12 @@ export function Step5CopyReview({ wizard }: Props) {
           Edit any section, pick your favorite headlines, or ask AI to refine specific parts.
         </p>
       </div>
+
+      {claimsNotice && (
+        <div role="status" className="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+          {claimsNotice}
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         {state.generatedSections.map((section, index) => {

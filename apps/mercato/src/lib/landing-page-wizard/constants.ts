@@ -684,7 +684,7 @@ export const OFFER_QUESTIONS: Record<PageType, Record<string, OfferQuestion[]>> 
 
 export const BASE_CRAFT_RULES = `- No generic filler. Every sentence must be specific to this business and audience.
 - BANNED phrases, never write any of these: "in today's world", "in today's fast-paced world", "take it to the next level", "unlock your potential", "it's important to", "game-changer", "look no further".
-- The hero headline must contain a specific number or a concrete object/outcome the reader can picture (e.g., "Fill your calendar with 10 qualified calls a month"). Never write abstract headlines like "Transform your business".
+- The hero headline must name a concrete object or outcome the reader can picture. Use a number only if the user supplied it. Never write abstract headlines like "Transform your business".
 - Every bullet and item description must state what the reader will be able to DO after saying yes: a concrete action or result, not an abstract quality.
 - CTAs must name the specific thing the reader gets (e.g., "Get the 12-point checklist", "Book my 30-minute audit"). Never use generic CTAs like "Get started", "Learn more", or "Submit".
 - Headlines must be benefit-driven — lead with what the reader gains.

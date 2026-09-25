@@ -6,6 +6,7 @@ import { meterCustomersAi } from '@/lib/usage/meter'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { BASE_CRAFT_RULES } from '@/lib/landing-page-wizard/constants'
+import { NO_INVENTED_CLAIMS_RULE, guardGeneratedSections } from '@/lib/landing-page-wizard/claims-guard'
 import { loadPageWithHistory, historyPromptBlock, appendRevision } from '@/lib/landing-page-wizard/revision-history'
 import type {
   GeneratedSection,
@@ -52,6 +53,7 @@ export async function POST(req: Request) {
     const systemPrompt = `You are an expert direct response copywriter refining a single section of a landing page. The business is ${businessContext.businessName} targeting ${businessContext.targetAudience}. The tone should be ${toneLabel} — keep every line you rewrite in that tone.
 
 Apply these copywriting rules to anything you change:
+${NO_INVENTED_CLAIMS_RULE}
 ${BASE_CRAFT_RULES}`
 
     const withHistory = pageId ? await loadPageWithHistory(pageId, auth.orgId!) : null
@@ -82,6 +84,17 @@ Return the updated section as JSON with the same field structure. Only change wh
     // Preserve the section type
     refined.type = section.type
 
+    // Strip figures that are in neither the user's details, their
+    // instruction, nor the section they started from.
+    const guarded = guardGeneratedSections([refined], {
+      sources: [businessContext, instruction, section],
+      hasSocialProof: true, // an existing testimonials section is the user's call
+    })
+    const safeSection = guarded.sections[0] ?? refined
+    if (guarded.flags.length > 0) {
+      console.info('[landing-page-ai.refine-section] removed unsourced claims', guarded.flags.map((f) => `${f.path}: ${f.claim}`))
+    }
+
     // Persist the feedback so future revisions know what was already asked.
     if (withHistory) {
       await appendRevision(pageId!, auth.orgId!, withHistory.config, {
@@ -93,7 +106,7 @@ Return the updated section as JSON with the same field structure. Only change wh
 
     return NextResponse.json({
       ok: true,
-      data: { section: refined },
+      data: { section: safeSection, removedClaims: guarded.flags.length },
     })
   } catch (error) {
     console.error('[landing-page-ai.refine-section]', error)
