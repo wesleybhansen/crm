@@ -3,8 +3,10 @@ import {
   applyContactSearchFilters,
   blindSearchIds,
   crudSearchOrganizationIds,
+  lookupHashForQuery,
   restrictFiltersToIds,
 } from '../blindSearch'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import {
   SEARCH_SOURCES_BY_ENTITY_ID,
   buildSearchTokenRows,
@@ -94,5 +96,49 @@ describe('blind contact search', () => {
     const f4: Record<string, any> = {}
     expect(await applyContactSearchFilters(f4, {}, ctx, 'person')).toBe(false)
     expect(f4.id).toBeUndefined()
+  })
+})
+
+describe('lookup-hash fallback', () => {
+  it('maps a full email or a phone-looking query to its lookup hash column', () => {
+    expect(lookupHashForQuery('E2E-Alice@Example.com ')).toEqual({ column: 'primary_email_hash', hash: hashForLookup('e2e-alice@example.com') })
+    expect(lookupHashForQuery('5550100011')).toEqual({ column: 'primary_phone_hash', hash: hashForLookup('5550100011') })
+    expect(lookupHashForQuery('555-010-0011')).toEqual({ column: 'primary_phone_hash', hash: hashForLookup('5550100011') })
+    expect(lookupHashForQuery('(555) 010 0011')?.hash).toBe(hashForLookup('5550100011'))
+    expect(lookupHashForQuery('5550100011', { emailOnly: true })).toBeNull()
+    expect(lookupHashForQuery('ada')).toBeNull()
+    expect(lookupHashForQuery('1234')).toBeNull()
+  })
+
+  it('finds a contact by its email or phone hash when its blind-index tokens are missing', async () => {
+    const { db } = await seed()
+    const P3 = '00000000-0000-4000-8000-000000000003'
+    const hashRows = [
+      { id: P3, tenant_id: T1, organization_id: O1, kind: 'person', primary_email_hash: hashForLookup('e2e-alice@example.com'), primary_phone_hash: hashForLookup('5550100011') },
+    ]
+    const knex = {
+      raw: async (sql: string, params: any[]) => {
+        if (sql.includes('from customer_entities') && /primary_(email|phone)_hash = \?/.test(sql)) {
+          const [tenantId, orgIds, kind, hash] = params
+          const column = sql.includes('primary_email_hash') ? 'primary_email_hash' : 'primary_phone_hash'
+          return { rows: hashRows.filter((r) => r.tenant_id === tenantId && orgIds.includes(r.organization_id) && r.kind === kind && (r as any)[column] === hash).map((r) => ({ id: r.id })) }
+        }
+        return { rows: await db.query(sql, params) }
+      },
+    }
+    const em = { getKnex: () => knex }
+    const ctx = { container: { resolve: () => em }, auth: { tenantId: T1, orgId: O1 }, organizationIds: [O1] }
+
+    const byEmail: Record<string, any> = {}
+    await applyContactSearchFilters(byEmail, { email: 'e2e-alice@example.com' }, ctx, 'person')
+    expect(byEmail.id).toEqual({ $in: [P3] })
+
+    const byDigits: Record<string, any> = {}
+    await applyContactSearchFilters(byDigits, { search: '5550100011' }, ctx, 'person')
+    expect(byDigits.id).toEqual({ $in: [P3] })
+
+    const otherOrg: Record<string, any> = {}
+    await applyContactSearchFilters(otherOrg, { email: 'e2e-alice@example.com' }, { ...ctx, organizationIds: [O2] }, 'person')
+    expect(otherOrg.id).toEqual({ $eq: NO_MATCH_ID })
   })
 })
