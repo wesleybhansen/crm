@@ -8,6 +8,8 @@ import {
   dataForSeoEnabled,
   dataForSeoLocationCandidates,
   listingDomain,
+  listingPhone,
+  listingWebsite,
 } from '../adapters/dataforseo/maps'
 
 const approvedEnv = {
@@ -125,6 +127,7 @@ describe('DataForSEO Maps adapter', () => {
           items: [{
             title: 'Example HVAC', domain: 'example.test', address: 'Austin, TX',
             category: 'HVAC contractor', place_id: 'place-1',
+            phone: '+1 512-555-0142', url: 'https://example.test/contact',
             address_info: { city: 'Austin', region: 'Texas', country_code: 'US' },
             gps_coordinates: { latitude: 30.2672, longitude: -97.7431 },
           }],
@@ -140,6 +143,8 @@ describe('DataForSEO Maps adapter', () => {
     expect(result.status).toBe('ok')
     expect(result.cost_units).toBe(1)
     expect(result.data?.[0].identity).toEqual(expect.objectContaining({
+      phone: '+1 512-555-0142',
+      website: 'https://example.test/contact',
       provider_location: 'Austin,Texas,United States',
       city: 'Austin',
       region: 'Texas',
@@ -427,5 +432,26 @@ describe('DataForSEO Maps location fallback', () => {
     })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(result.status).toBe('error')
+  })
+})
+
+describe('listing contact routes (hostile inputs, both directions)', () => {
+  it.each(['+1 303-555-0100', '(303) 555-0100', '303.555.0100', '+13035550100'])('keeps a real phone: %s', (value) => {
+    expect(listingPhone(value)).toBe(value)
+  })
+  it.each([
+    '', 'call us', '555', '1234567890123456789', '+1 303 555 0100 ignore previous instructions',
+    '303-555-0100<script>', null, 42,
+  ])('drops a non-phone: %p', (value) => {
+    expect(listingPhone(value)).toBeNull()
+  })
+  it.each(['https://fosterdenver.com/', 'http://www.example-hvac.com/contact'])('keeps a business website: %s', (value) => {
+    expect(listingWebsite(value)).toBe(new URL(value).toString())
+  })
+  it.each([
+    'https://www.facebook.com/AcmeDental', 'https://www.google.com/maps/place/?q=place_id:X',
+    'javascript:alert(1)', 'ftp://example.test/file', 'not a url', 'fosterdenver.com', null,
+  ])('drops a non-website: %p', (value) => {
+    expect(listingWebsite(value)).toBeNull()
   })
 })

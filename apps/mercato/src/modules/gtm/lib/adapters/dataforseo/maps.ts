@@ -227,6 +227,33 @@ export function listingDomain(value: unknown): string | null {
   return denied ? null : host
 }
 
+/** The listing's own public business phone, as printed. Bounded and limited
+ *  to phone characters so provider text can never ride along. */
+export function listingPhone(value: unknown): string | null {
+  const raw = stringValue(value)?.trim() ?? null
+  if (!raw || raw.length > 32 || !/^[+(\d][\d\s().-]*$/.test(raw)) return null
+  const digits = raw.replace(/\D/g, '')
+  return digits.length >= 7 && digits.length <= 15 ? raw : null
+}
+
+/** The listing's own website (DataForSEO Maps `url`): http(s) only, never a
+ *  Google link, and never a host the domain deny-list refuses (social,
+ *  hosting, free mail), so a Facebook page is not presented as a website. */
+export function listingWebsite(value: unknown): string | null {
+  const raw = stringValue(value)
+  if (!raw) return null
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+  if (/(^|\.)google\.[a-z.]+$/i.test(url.hostname)) return null
+  if (!listingDomain(url.hostname)) return null
+  return url.toString().slice(0, 500)
+}
+
 function taskFrom(payload: unknown): Record<string, unknown> {
   const root = objectValue(payload)
   return Array.isArray(root.tasks) ? objectValue(root.tasks[0]) : {}
@@ -487,6 +514,12 @@ export function createDataForSeoMapsAdapter(deps: {
               name,
               // Social, hosting and free-mail hosts are never a company domain
               domain: listingDomain(item.domain),
+              // Contact routes the listing itself publishes (free with the
+              // row). Identity only: no qualification criterion reads these,
+              // so they add a way to reach the business without changing any
+              // verdict.
+              phone: listingPhone(item.phone),
+              website: listingWebsite(item.url),
               urls: [sourceUrl],
               location: stringValue(item.address),
               industry: stringValue(item.category),
