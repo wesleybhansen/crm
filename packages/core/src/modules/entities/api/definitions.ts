@@ -130,12 +130,19 @@ export async function GET(req: Request) {
     mode: 'public',
   })
 
-  // Tenant-only scoping: allow global (null) or exact tenant match; do not scope by organization here
+  // Tenant plus organisation scoping. Every Noli customer shares one tenant,
+  // so a tenant-only read merged other customers' org-level definitions (and
+  // their tombstones) into this organisation's forms. Only this
+  // organisation's definitions and org-less (tenant/global) ones apply.
+  const orgClause = organizationId
+    ? { $or: [ { organizationId }, { organizationId: null } ] }
+    : { organizationId: null }
   const whereActive = {
     entityId: { $in: entityIds as any },
     deletedAt: null,
     $and: [
       { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
+      orgClause,
     ],
   } as any
   const defs = await em.find(CustomFieldDef, whereActive as any)
@@ -144,6 +151,7 @@ export async function GET(req: Request) {
     deletedAt: { $ne: null } as any,
     $and: [
       { $or: [ { tenantId: tenantId ?? undefined as any }, { tenantId: null } ] },
+      orgClause,
     ],
   } as any)
 

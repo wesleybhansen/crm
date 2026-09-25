@@ -66,9 +66,13 @@ export async function GET(req: Request) {
   for (const cu of custom) byId.set(cu.entityId, { ...byId.get(cu.entityId), ...cu })
 
   // Count field definitions scoped to current tenant/org (same scoping as custom entities)
+  // Organisation-scoped too: every Noli customer shares one tenant, and a
+  // tenant-only count exposed other customers' field definitions.
   const defsWhere: any = { isActive: true }
   defsWhere.$and = [
-    //{ $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] }, // the entities and custom fields are defined per tenant
+    auth.orgId
+      ? { $or: [ { organizationId: auth.orgId }, { organizationId: null } ] }
+      : { organizationId: null },
     { tenantId: auth.tenantId ?? undefined as any },
   ]
   const defs = await em.find(CustomFieldDef as any, defsWhere as any)

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -24,6 +25,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Platform operators only: the snapshot describes the shared deployment
+  // (hosts, service config) and the purge clears the cache every Noli
+  // customer in the shared tenant uses.
+  if (!(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   try {
     const snapshot: SystemStatusSnapshot = buildSystemStatusSnapshot()
     return NextResponse.json(snapshot)
@@ -41,6 +49,13 @@ export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Platform operators only: the snapshot describes the shared deployment
+  // (hosts, service config) and the purge clears the cache every Noli
+  // customer in the shared tenant uses.
+  if (!(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const { translate } = await resolveTranslations()

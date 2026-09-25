@@ -28,6 +28,12 @@ jest.mock('@open-mercato/core/modules/messages/lib/forwarding', () => ({
   )),
 }))
 
+// Recipient organisation membership has its own test (messages.recipients-scope.test.ts).
+jest.mock('@open-mercato/core/modules/messages/commands/shared', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/messages/commands/shared'),
+  assertRecipientsInOrganization: jest.fn(async () => undefined),
+}))
+
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
   linkLibraryAttachmentsToMessage: jest.fn(),

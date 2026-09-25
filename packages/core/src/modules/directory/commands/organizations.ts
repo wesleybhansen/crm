@@ -1,5 +1,9 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { assertActorManagesOrganization, requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
+import {
+  assertActorManagesOrganization,
+  assertActorManagesOrganizations,
+  requireSuperAdmin,
+} from '@open-mercato/core/modules/auth/lib/organizationAuthority'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
@@ -289,6 +293,10 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
     const childIds = normalizeChildIds(parsed.childIds ?? [], parentId ? [parentId] : [])
     if (parentId && childIds.includes(parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
+    // Adopting an organisation as a child moves it into the actor's subtree
+    // (and so into their access scope): every child must already be one the
+    // actor manages. Another customer's organisation id is refused.
+    await assertActorManagesOrganizations(ctx, childIds)
     await ensureChildrenValid(em, tenantId, childIds)
     const childParentsBefore = await loadChildParentSnapshots(em, tenantId, childIds)
 
@@ -440,18 +448,31 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const tenantId = requireTenantScope(authTenantId, parsed.tenantId ?? resolveTenantIdFromEntity(existing))
     await assertActorManagesOrganization(ctx, String(existing.id))
 
-    const parentId = parsed.parentId ?? null
+    // An omitted parentId keeps the current parent (it used to silently move
+    // the organisation to the top level). Moving an organisation to the top
+    // level is a super-admin act, like creating a top-level organisation.
+    const existingParentId = existing.parentId ?? null
+    const parentId = parsed.parentId === undefined ? existingParentId : (parsed.parentId ?? null)
+    if (!parentId && existingParentId) await requireSuperAdmin(ctx, 'move an organization to the top level')
     if (parentId) {
       if (parentId === parsed.id) throw new CrudHttpError(400, { error: 'Organization cannot be its own parent' })
-      if (parentId !== (existing.parentId ?? null)) await assertActorManagesOrganization(ctx, parentId)
+      if (parentId !== existingParentId) await assertActorManagesOrganization(ctx, parentId)
       if (Array.isArray(existing.descendantIds) && existing.descendantIds.includes(parentId)) {
         throw new CrudHttpError(400, { error: 'Cannot assign descendant as parent' })
       }
       await ensureParentExists(em, tenantId, parentId)
     }
 
-    const normalizedChildIds = normalizeChildIds(parsed.childIds ?? [], [parsed.id, parentId ?? ''])
+    // An omitted childIds keeps the current children (it used to detach them all).
+    const requestedChildIds = parsed.childIds === undefined
+      ? (Array.isArray(existing.childIds) ? existing.childIds.map(String) : [])
+      : parsed.childIds
+    const normalizedChildIds = normalizeChildIds(requestedChildIds, [parsed.id, parentId ?? ''])
     if (normalizedChildIds.some((id) => id === parentId)) throw new CrudHttpError(400, { error: 'Child cannot equal parent' })
+    // Every child (new or kept) must be an organisation the actor already
+    // manages; otherwise a customer could adopt another customer's
+    // organisation and gain its data through the subtree scope.
+    await assertActorManagesOrganizations(ctx, normalizedChildIds)
     if (Array.isArray(existing.ancestorIds) && normalizedChildIds.some((id) => existing.ancestorIds.includes(id))) {
       throw new CrudHttpError(400, { error: 'Cannot assign ancestor as child' })
     }
@@ -651,6 +672,9 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     await assertActorManagesOrganization(ctx, String(existing.id))
 
     const parentId = existing.parentId ?? null
+    // Deleting a top-level organisation (a whole customer) is a super-admin
+    // act, mirroring create; its children would otherwise become top-level.
+    if (!parentId) await requireSuperAdmin(ctx, 'delete a top-level organization')
     const childSnapshotsBefore = await loadChildParentSnapshots(
       em,
       tenantId,

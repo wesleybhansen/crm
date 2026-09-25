@@ -12,6 +12,7 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -160,7 +161,20 @@ export async function GET(req: Request) {
   const roleIds = rows.map((r: any) => String(r.id))
   const counts: Record<string, number> = {}
   if (roleIds.length) {
-    const userRoleFilter: FilterQuery<UserRole> = { role: { $in: roleIds }, deletedAt: null }
+    // Roles are shared by every customer in the tenant: a non-super-admin
+    // counts only the members of the organisations it manages.
+    let countOrgIds: string[] | null = null
+    if (!isSuperAdmin) {
+      try {
+        const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+        countOrgIds = Array.isArray(scope.allowedIds) ? scope.allowedIds : []
+      } catch {
+        countOrgIds = []
+      }
+    }
+    const userRoleFilter: FilterQuery<UserRole> = countOrgIds
+      ? ({ role: { $in: roleIds }, deletedAt: null, user: { organizationId: { $in: countOrgIds }, deletedAt: null } } as unknown as FilterQuery<UserRole>)
+      : { role: { $in: roleIds }, deletedAt: null }
     const links = await em.find(UserRole, userRoleFilter)
     for (const l of links) {
       const rid = String((l as any).role?.id || (l as any).role)

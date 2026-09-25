@@ -1,4 +1,5 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/organizationAuthority'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { tenantCreateSchema, tenantUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
@@ -44,6 +45,9 @@ type SerializedTenant = ReturnType<typeof serializeTenant>
 const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   id: 'directory.tenants.create',
   async execute(rawInput, ctx) {
+    // Every Noli customer shares one tenant: creating, renaming, deactivating
+    // or deleting a tenant affects every customer, so only a super admin may.
+    await requireSuperAdmin(ctx, 'create a tenant')
     const { parsed, custom } = parseWithCustomFields(tenantCreateSchema, rawInput)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
@@ -117,6 +121,7 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     return { before: serializeTenant(current) }
   },
   async execute(rawInput, ctx) {
+    await requireSuperAdmin(ctx, 'update a tenant')
     const { parsed, custom } = parseWithCustomFields(tenantUpdateSchema, rawInput)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const tenant = await de.updateOrmEntity({
@@ -181,6 +186,7 @@ const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, str
     return existing ? { before: serializeTenant(existing) } : {}
   },
   async execute(rawInput, ctx) {
+    await requireSuperAdmin(ctx, 'delete a tenant')
     const id = requireId(rawInput, 'Tenant id required')
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const tenant = await de.deleteOrmEntity({

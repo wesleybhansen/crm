@@ -22,13 +22,17 @@ export async function GET(req: Request) {
     isActive: true,
     showInSidebar: true
   }
+  // Organisation-scoped: every Noli customer shares one tenant, so a
+  // tenant-only read put other customers' custom entities in this sidebar.
   where.$and = [
-//    { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] }, // the entities and custom fields are defined per tenant
+    auth.orgId
+      ? { $or: [ { organizationId: auth.orgId }, { organizationId: null } ] }
+      : { organizationId: null },
     { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
   ]
-  
+
   // Try cache first to avoid repeated queries on focus refreshes
-  const cacheKey = `entities:sidebar:${auth.tenantId || 'null'}`
+  const cacheKey = `entities:sidebar:${auth.tenantId || 'null'}:${auth.orgId || 'null'}`
   try {
     if (cache) {
       const cached = await cache.get(cacheKey)

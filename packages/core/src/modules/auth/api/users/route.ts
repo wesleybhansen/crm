@@ -6,7 +6,7 @@ import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/fact
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { User, Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { E } from '#generated/entities.ids.generated'
@@ -316,17 +316,37 @@ export const DELETE = crud.DELETE
 
 async function assertCanAssignRoles(req: Request, roles: unknown) {
   if (!Array.isArray(roles)) return
-  const normalized = roles
-    .map((role) => (typeof role === 'string' ? role.trim().toLowerCase() : null))
+  const requested = roles
+    .map((role) => (typeof role === 'string' ? role.trim() : null))
     .filter((role): role is string => !!role)
-  if (!normalized.includes('superadmin')) return
+  if (!requested.length) return
   const auth = await getAuthFromRequest(req)
   if (!auth) throw new Error('Unauthorized')
   const container = await createRequestContainer()
   const rbac = container.resolve('rbacService') as RbacService
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
-  if (!acl?.isSuperAdmin) {
+  if (acl?.isSuperAdmin) return
+  if (requested.some((role) => role.toLowerCase() === 'superadmin')) {
     throw forbidden('Only super administrators can assign the superadmin role.')
+  }
+  // Any role whose ACL carries super-admin rights (whatever its name) would
+  // lift a customer above the organisation boundary that separates every
+  // customer in the shared tenant.
+  const em = container.resolve('em') as EntityManager
+  const tenantId = auth.tenantId ?? null
+  const candidates = await em.find(Role, {
+    name: { $in: requested },
+    deletedAt: null,
+    ...(tenantId ? { $or: [{ tenantId }, { tenantId: null }] } : { tenantId: null }),
+  } as any)
+  if (!candidates.length) return
+  const privileged = await em.find(RoleAcl, {
+    role: { $in: candidates.map((role) => String(role.id)) },
+    isSuperAdmin: true,
+    deletedAt: null,
+  } as any)
+  if (privileged.length) {
+    throw forbidden('Only super administrators can assign a super administrator role.')
   }
 }
 

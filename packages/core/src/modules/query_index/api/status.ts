@@ -59,6 +59,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Organization access denied' }, { status: 403 })
   }
 
+  // Every Noli customer shares one tenant. Tenant-wide figures (full-text
+  // counts) and organisation-less log rows (whose payload and stack can hold
+  // any customer's record) are for super admins, whose scope is unrestricted.
+  const unrestrictedScope = scope.allowedIds === null
+
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
@@ -109,7 +114,7 @@ export async function GET(req: Request) {
 
   // Fetch fulltext entity counts
   let fulltextEntityCounts: Record<string, number> | null = null
-  if (fulltextStrategy) {
+  if (fulltextStrategy && unrestrictedScope) {
     try {
       fulltextEntityCounts = await fulltextStrategy.getEntityCounts(tenantId)
     } catch {
@@ -389,9 +394,13 @@ export async function GET(req: Request) {
       }
     })
     .andWhere((qb: any) => {
-      qb.whereNull('organization_id')
-      if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-        qb.orWhereIn('organization_id', organizationScopeIds)
+      if (unrestrictedScope) {
+        qb.whereNull('organization_id')
+        if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+          qb.orWhereIn('organization_id', organizationScopeIds)
+        }
+      } else {
+        qb.whereIn('organization_id', organizationScopeIds ?? [])
       }
     })
     .orderBy('occurred_at', 'desc')
@@ -425,9 +434,13 @@ export async function GET(req: Request) {
       }
     })
     .andWhere((qb: any) => {
-      qb.whereNull('organization_id')
-      if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
-        qb.orWhereIn('organization_id', organizationScopeIds)
+      if (unrestrictedScope) {
+        qb.whereNull('organization_id')
+        if (Array.isArray(organizationScopeIds) && organizationScopeIds.length) {
+          qb.orWhereIn('organization_id', organizationScopeIds)
+        }
+      } else {
+        qb.whereIn('organization_id', organizationScopeIds ?? [])
       }
     })
     .orderBy('occurred_at', 'desc')

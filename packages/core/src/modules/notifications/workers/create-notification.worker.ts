@@ -70,7 +70,7 @@ export default async function handle(
     const { input, tenantId, organizationId } = payload
 
     const knex = getKnex(em)
-    const recipientUserIds = await getRecipientUserIdsForRole(knex, tenantId, input.roleId)
+    const recipientUserIds = await getRecipientUserIdsForRole(knex, tenantId, input.roleId, organizationId ?? null)
     if (recipientUserIds.length === 0) {
       return
     }
@@ -91,7 +91,7 @@ export default async function handle(
     const { input, tenantId, organizationId } = payload
 
     const knex = getKnex(em)
-    const recipientUserIds = await getRecipientUserIdsForFeature(knex, tenantId, input.requiredFeature)
+    const recipientUserIds = await getRecipientUserIdsForFeature(knex, tenantId, input.requiredFeature, organizationId ?? null)
 
     if (recipientUserIds.length === 0) {
       return

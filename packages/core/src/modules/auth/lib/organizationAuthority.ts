@@ -45,3 +45,27 @@ export async function assertActorManagesOrganization(
     throw new CrudHttpError(403, { error: 'That record belongs to another organization' })
   }
 }
+
+/**
+ * Every id must be an organisation the actor already manages. Used for the
+ * hierarchy fields of organisation create/update: listing another customer's
+ * organisation as a child (or parent) would pull it into the actor's subtree,
+ * and so into their access scope. Super admins and auth-less internal calls
+ * are exempt, as in `assertActorManagesOrganization`.
+ */
+export async function assertActorManagesOrganizations(
+  ctx: CommandRuntimeContext,
+  organizationIds: Iterable<string | null | undefined>,
+): Promise<void> {
+  if (!ctx.auth) return
+  const ids = Array.from(new Set(Array.from(organizationIds).filter((id): id is string => typeof id === 'string' && id.length > 0)))
+  if (!ids.length) return
+  if (await actorIsSuperAdmin(ctx)) return
+  const em = ctx.container.resolve('em') as EntityManager
+  const rbac = ctx.container.resolve('rbacService') as RbacService
+  const scope = await resolveOrganizationScope({ em, rbac, auth: ctx.auth })
+  const allowed = Array.isArray(scope.allowedIds) ? new Set(scope.allowedIds.map(String)) : null
+  if (!allowed || ids.some((id) => !allowed.has(String(id)))) {
+    throw new CrudHttpError(403, { error: 'That record belongs to another organization' })
+  }
+}

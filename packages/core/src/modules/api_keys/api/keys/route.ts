@@ -334,7 +334,14 @@ const crud = makeCrudRoute<
         throw json({ error: translate('api_keys.errors.forbidden', 'Forbidden') }, { status: 403 })
       }
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
-      if (record.organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
+      if (!isSuperAdmin) {
+        // Every customer shares the tenant: a non-super-admin may delete only
+        // keys bound to an organisation it manages (never an org-less,
+        // tenant-level key, and never with an empty scope).
+        if (!record.organizationId || !Array.isArray(allowedIds) || !allowedIds.includes(record.organizationId)) {
+          throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
+        }
+      } else if (record.organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
         if (!allowedIds.includes(record.organizationId)) {
           throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
         }

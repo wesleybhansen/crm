@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
-import { resolveNotificationContext } from '../lib/routeHelpers'
+import { assertRecipientsInActorScope, NotificationScopeError, resolveNotificationContext } from '../lib/routeHelpers'
 import {
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
@@ -70,10 +70,16 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { service, scope } = await resolveNotificationContext(req)
+  const { service, scope, ctx } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
   const input = createNotificationSchema.parse(body)
+  try {
+    await assertRecipientsInActorScope(req, ctx, [input.recipientUserId])
+  } catch (err) {
+    if (err instanceof NotificationScopeError) return Response.json({ error: err.message }, { status: 403 })
+    throw err
+  }
 
   const notification = await service.create(input, scope)
 

@@ -348,3 +348,44 @@ export function buildCommandLogBase(
     organizationId: snapshot.organizationId,
   }
 }
+
+/**
+ * Every Noli customer shares one tenant. A message raised in an organisation
+ * may only be delivered to members of that organisation's tree (itself, its
+ * ancestors and its descendants); a user id from another customer is refused
+ * so the platform cannot be used to message or email another customer's
+ * users. Messages without an organisation (super admin / internal) are not
+ * restricted here.
+ */
+export async function assertRecipientsInOrganization(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string | null | undefined },
+  recipientUserIds: Iterable<string>,
+): Promise<void> {
+  const organizationId = scope.organizationId ?? null
+  if (!organizationId) return
+  const ids = Array.from(new Set(Array.from(recipientUserIds).filter((id) => typeof id === 'string' && id.length > 0)))
+  if (!ids.length) return
+  const knex = em.getKnex()
+  const org = await knex('organizations')
+    .where('id', organizationId)
+    .where('tenant_id', scope.tenantId)
+    .whereNull('deleted_at')
+    .first('id', 'ancestor_ids', 'descendant_ids')
+  if (!org) throw new Error('Recipient belongs to another organization')
+  const toList = (value: unknown): string[] => {
+    let raw = value
+    if (typeof raw === 'string') {
+      try { raw = JSON.parse(raw) } catch { return [] }
+    }
+    return Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === 'string') : []
+  }
+  const audience = new Set<string>([String(org.id), ...toList(org.ancestor_ids), ...toList(org.descendant_ids)])
+  const rows: Array<{ id: string; organization_id: string | null }> = await knex('users')
+    .whereIn('id', ids)
+    .where('tenant_id', scope.tenantId)
+    .whereNull('deleted_at')
+    .select('id', 'organization_id')
+  const inScope = rows.filter((row) => row.organization_id && audience.has(String(row.organization_id)))
+  if (inScope.length !== ids.length) throw new Error('Recipient belongs to another organization')
+}

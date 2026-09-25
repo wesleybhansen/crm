@@ -89,6 +89,11 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
   async execute(rawInput, ctx) {
+    // Roles are shared by every Noli customer in the one tenant (or global
+    // when tenantId is null), exactly like update/delete below: a customer
+    // could otherwise add roles to every other customer's role list, create
+    // global or foreign-tenant roles, and squat role names.
+    await requireSuperAdmin(ctx, 'create a role shared across the tenant')
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     const resolvedTenantId = parsed.tenantId === undefined ? ctx.auth?.tenantId ?? null : parsed.tenantId ?? null
     const de = (ctx.container.resolve('dataEngine') as DataEngine)

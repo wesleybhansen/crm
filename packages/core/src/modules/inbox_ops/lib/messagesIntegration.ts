@@ -62,6 +62,8 @@ export async function resolveMessageSenderUserId(
       const row = await knex('users')
         .select('id')
         .where('email', normalizedEmail)
+        .where('tenant_id', scope.tenantId)
+        .where('organization_id', scope.organizationId)
         .whereNull('deleted_at')
         .first()
       if (row?.id) return row.id
@@ -85,8 +87,9 @@ function resolveCommandBus(container: ResolverLike): CommandBus | null {
 /**
  * Creates an internal message record for an incoming inbox email.
  *
- * The message is delivered to all users with the `inbox_ops.proposals.view`
- * feature in the tenant — mirroring the same audience that sees proposals
+ * The message is delivered to the users with the `inbox_ops.proposals.view`
+ * feature in the email's organization (and its ancestors), never to other
+ * organizations sharing the tenant — mirroring the same audience that sees proposals
  * in the inbox_ops module. This follows the shared-queue pattern used by
  * all major ERP/CRM systems (Salesforce queues, Dynamics 365 queues,
  * HubSpot shared inboxes, Odoo team followers).
@@ -102,7 +105,7 @@ export async function createMessageRecordForEmail(
     const em = ctx.container.resolve('em') as EntityManager
     const knex = em.getKnex()
     const recipientUserIds = await getRecipientUserIdsForFeature(
-      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view',
+      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view', ctx.scope.organizationId,
     )
 
     const recipients = recipientUserIds.map((userId) => ({ userId, type: 'to' as const }))
@@ -176,7 +179,7 @@ export async function createMessageRecordForReply(
     const em = ctx.container.resolve('em') as EntityManager
     const knex = em.getKnex()
     const recipientUserIds = await getRecipientUserIdsForFeature(
-      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view',
+      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view', ctx.scope.organizationId,
     )
     if (recipientUserIds.length === 0) return null
 

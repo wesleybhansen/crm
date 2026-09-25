@@ -228,7 +228,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const em = rootEm.fork()
 
       const knex = getKnex(em)
-      const recipientUserIds = await getRecipientUserIdsForRole(knex, ctx.tenantId, input.roleId)
+      const recipientUserIds = await getRecipientUserIdsForRole(knex, ctx.tenantId, input.roleId, ctx.organizationId ?? null)
       if (recipientUserIds.length === 0) {
         return []
       }
@@ -255,10 +255,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     async createForFeature(input, ctx) {
       const em = rootEm.fork()
       const knex = getKnex(em)
-      const recipientUserIds = await getRecipientUserIdsForFeature(knex, ctx.tenantId, input.requiredFeature)
+      const recipientUserIds = await getRecipientUserIdsForFeature(knex, ctx.tenantId, input.requiredFeature, ctx.organizationId ?? null)
 
       if (recipientUserIds.length === 0) {
-        debug('No users found with feature:', input.requiredFeature, 'in tenant:', ctx.tenantId)
+        debug('No users found with feature:', input.requiredFeature, 'in organization:', ctx.organizationId ?? null)
         return []
       }
 

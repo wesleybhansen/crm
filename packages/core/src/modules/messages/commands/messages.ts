@@ -17,6 +17,7 @@ import { validateMessageObjectsForType } from '../lib/object-validation'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
+  assertRecipientsInOrganization,
   loadMessageAggregateSnapshot,
   restoreMessageAggregateSnapshot,
   type MessageAggregateSnapshot,
@@ -146,6 +147,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await assertRecipientsInOrganization(em, input, input.recipients.map((recipient) => recipient.userId))
     let messageId = ''
     let responseThreadId: string | null = null
     let responseExternalEmail: string | null = null
@@ -347,6 +349,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
 
     if (input.recipients) {
+      await assertRecipientsInOrganization(
+        em,
+        { tenantId: message.tenantId, organizationId: message.organizationId ?? null },
+        input.recipients.map((recipient) => recipient.userId),
+      )
       await em.nativeDelete(MessageRecipient, { messageId: message.id })
       for (const recipient of input.recipients) {
         em.persist(em.create(MessageRecipient, {
@@ -483,6 +490,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       }
     }
     if (recipientIds.size === 0) throw new Error('No recipients available for reply')
+    await assertRecipientsInOrganization(em, input, recipientIds)
 
     let messageId = ''
     let responseExternalEmail: string | null = null
@@ -597,6 +605,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     const input = forwardCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const original = await requireMessageById(em, input, input.messageId)
+    await assertRecipientsInOrganization(em, input, input.recipients.map((recipient) => recipient.userId))
     const isRecipient = await em.findOne(MessageRecipient, {
       messageId: input.messageId,
       recipientUserId: input.userId,

@@ -42,6 +42,18 @@ export async function GET(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 })
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
+  const rbacService = container.resolve('rbacService') as any
+  const actorAcl = auth.sub
+    ? await rbacService.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
+    : null
+  if (!actorAcl?.isSuperAdmin) {
+    // Same boundary as PUT: every customer shares the tenant, so reading
+    // another organisation's user ACL (features, org list) is refused.
+    const target = await em.getKnex()('users').where('id', parsed.data.userId).first('organization_id')
+    if (!target || !auth.orgId || String(target.organization_id) !== String(auth.orgId)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
   const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId: auth.tenantId as any })
   const response = acl
     ? {

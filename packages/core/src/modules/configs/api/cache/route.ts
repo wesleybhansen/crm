@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -23,6 +24,13 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Every Noli customer shares one tenant, so the tenant cache holds every
+  // customer's entries (keys carry their organisation ids and queries), and
+  // clearing it clears it for all of them. Platform operators only.
+  if (!(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const { translate } = await resolveTranslations()
@@ -53,6 +61,13 @@ export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Every Noli customer shares one tenant, so the tenant cache holds every
+  // customer's entries (keys carry their organisation ids and queries), and
+  // clearing it clears it for all of them. Platform operators only.
+  if (!(await resolveIsSuperAdmin({ auth, container: await createRequestContainer() }))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const { translate } = await resolveTranslations()
