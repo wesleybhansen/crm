@@ -2,6 +2,7 @@ import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { isMaintenanceMode } from '@open-mercato/shared/lib/runtime/tenancy'
 
 /**
  * Execute a tool with full context and ACL checks.
@@ -11,6 +12,18 @@ export async function executeTool(
   input: unknown,
   context: McpToolContext
 ): Promise<ToolExecutionResult> {
+  // Maintenance window (tenant split cutover): the HTTP dispatcher refuses
+  // writes, but MCP clients, the in-app assistant and the tools endpoint all
+  // execute tools here and would write straight through it (2026-09-25
+  // review, M6). No tool runs while MAINTENANCE is set.
+  if (isMaintenanceMode()) {
+    return {
+      success: false,
+      error: 'The CRM is briefly down for maintenance. Please try again in a few minutes.',
+      errorCode: 'MAINTENANCE',
+    }
+  }
+
   const registry = getToolRegistry()
   const tool = registry.getTool(toolName)
 
