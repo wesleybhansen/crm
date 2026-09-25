@@ -11,6 +11,10 @@ import {
   getRecommendedTemplates,
   type AutomationTemplate,
 } from '@/lib/automation-templates'
+import { automationSendsEmail, refusalIfNotConnected } from '../../../../email/lib/sending-readiness'
+
+const TEMPLATE_BLOCKED_MESSAGE =
+  'Installed paused: connect an email account in Settings, then turn this automation on. Nothing will be sent until then.'
 
 /**
  * Map template trigger types to automation_rules trigger_type values.
@@ -222,6 +226,20 @@ export async function POST(req: Request) {
       ? { ...triggerConfig, scheduleType: mapTemplateToScheduleType(template.id), intervalMinutes: mapTemplateToInterval(template.id) }
       : triggerConfig
 
+    // An email-sending template installed while the organisation has no way
+    // to send used to go in active, so every trigger failed (2026-09-25
+    // review, M4). It is installed paused instead, with the same notice the
+    // rule editor gives, and switching it on later runs the sending check.
+    let startActive = true
+    let notice: string | null = null
+    if (automationSendsEmail({ action_type: actionType, steps: stepsJson ?? JSON.stringify(steps) })) {
+      const refusal = await refusalIfNotConnected(knex, auth.orgId, 'automations', TEMPLATE_BLOCKED_MESSAGE)
+      if (refusal) {
+        startActive = false
+        notice = refusal.error
+      }
+    }
+
     const id = require('crypto').randomUUID()
     await knex('automation_rules').insert({
       id,
@@ -235,15 +253,15 @@ export async function POST(req: Request) {
       action_config: JSON.stringify(actionConfig),
       steps: stepsJson,
       conditions: conditions ? JSON.stringify(conditions) : null,
-      status: 'active',
-      is_active: true,
+      status: startActive ? 'active' : 'paused',
+      is_active: startActive,
       template_id: templateId,
       created_at: new Date(),
       updated_at: new Date(),
     })
 
     const rule = await knex('automation_rules').where('id', id).first()
-    return NextResponse.json({ ok: true, data: rule }, { status: 201 })
+    return NextResponse.json({ ok: true, data: rule, ...(notice ? { notice, code: 'email_not_connected' } : {}) }, { status: 201 })
   } catch (error) {
     console.error('[automation-templates] POST error', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })

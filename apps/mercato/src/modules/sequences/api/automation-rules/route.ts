@@ -170,7 +170,11 @@ export async function PUT(req: Request) {
     const existing = await knex('automation_rules').where('id', id).where('organization_id', auth.orgId).first()
     if (!existing) return NextResponse.json({ ok: false, error: 'Automation not found' }, { status: 404 })
 
-    if (update.is_active === true) {
+    // The rule ends up active when this update switches it on, or when it
+    // is already on and the update leaves the toggle alone (adding an email
+    // step to an active rule used to skip the sending check entirely).
+    const willBeActive = update.is_active !== undefined ? update.is_active === true : Boolean(existing.is_active)
+    if (willBeActive) {
       const merged = {
         action_type: update.action_type ?? existing.action_type,
         steps: update.steps !== undefined ? update.steps : existing.steps,
