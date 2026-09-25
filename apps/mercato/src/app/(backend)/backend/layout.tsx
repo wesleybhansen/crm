@@ -46,7 +46,7 @@ import { AiAssistantWidget } from '@/components/AiAssistantWidget'
 import { FloatingAssistantButton } from '@/components/FloatingAssistantButton'
 import { BackgroundJobs } from '@/components/BackgroundJobs'
 import { ReconnectingNotice } from '@/components/ReconnectingNotice'
-import { EMAIL_NOT_CONNECTED_BANNER, getEmailSendingGap } from '@/modules/email/lib/sending-readiness'
+import { EMAIL_CONNECT_LINK_TEXT, EMAIL_CONNECT_URL, EMAIL_NOT_CONNECTED_BANNER, getEmailSendingGap } from '@/modules/email/lib/sending-readiness'
 
 type NavItem = {
   href: string
@@ -530,8 +530,8 @@ export default async function BackendLayout({ children, params }: { children: Re
             >
               {emailSendingBlocked && (
                 <div role="status" className="mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
-                  {EMAIL_NOT_CONNECTED_BANNER.replace(' Connect it in Settings.', ' ')}
-                  <a href="/backend/settings-simple" className="font-medium underline">Connect it in Settings.</a>
+                  {EMAIL_NOT_CONNECTED_BANNER.replace(` ${EMAIL_CONNECT_LINK_TEXT}`, ' ')}
+                  <a href={EMAIL_CONNECT_URL} className="font-medium underline">{EMAIL_CONNECT_LINK_TEXT}</a>
                 </div>
               )}
               <PageInjectionBoundary path={path} context={injectionContext}>
