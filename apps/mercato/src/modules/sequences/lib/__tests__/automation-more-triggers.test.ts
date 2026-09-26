@@ -140,6 +140,16 @@ describe('Contact Updated', () => {
   })
 })
 
+describe('no listeners, no ledger row', () => {
+  it('a save in an organization with no Contact Updated rule claims nothing', async () => {
+    const { knex, ctx } = world([{ trigger_type: 'contact_created' }, { trigger_type: 'contact_updated', is_active: false }])
+    await contactUpdated({ id: PERSON_PROFILE, ...scope, eventId: 'evt-1' }, ctx)
+    await dealCreated({ id: DEAL, ...scope }, ctx)
+    expect(knex.db.tables.automation_trigger_dispatches).toHaveLength(0)
+    expect(tasks(knex)).toHaveLength(0)
+  })
+})
+
 describe('Company Created', () => {
   it('runs once per company, with the company as the rule’s contact', async () => {
     const { knex, ctx } = world([{ trigger_type: 'company_created' }, { trigger_type: 'contact_created' }])

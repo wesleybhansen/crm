@@ -87,11 +87,37 @@ export async function claimAutomationDispatch(
   return Array.isArray(rows) && rows.length > 0
 }
 
+/**
+ * Whether anything in this organization listens for the trigger: an active
+ * rule, or an active sequence on the matching sequence trigger. Contact
+ * saves and new deals are frequent, so an organization with no rule for them
+ * writes no ledger row at all.
+ */
+async function hasListeners(knex: Knex, input: AutomationDispatchInput): Promise<boolean> {
+  const rule = await knex('automation_rules')
+    .where('organization_id', input.organizationId)
+    .where('tenant_id', input.tenantId)
+    .where('trigger_type', input.triggerType)
+    .where('is_active', true)
+    .first('id')
+  if (rule) return true
+  if (!input.sequenceTrigger) return false
+  const sequence = await knex('sequences')
+    .where('organization_id', input.organizationId)
+    .where('tenant_id', input.tenantId)
+    .where('trigger_type', input.sequenceTrigger.type)
+    .where('status', 'active')
+    .whereNull('deleted_at')
+    .first('id')
+  return !!sequence
+}
+
 export async function dispatchAutomationTrigger(
   knex: Knex,
   input: AutomationDispatchInput,
   deps: AutomationDispatchDeps = {},
 ): Promise<{ dispatched: boolean }> {
+  if (!(await hasListeners(knex, input))) return { dispatched: false }
   const claimed = await claimAutomationDispatch(knex, input, deps.now ? deps.now() : new Date())
   if (!claimed) return { dispatched: false }
   const executeRules = deps.executeRules ?? (executeAutomationRules as NonNullable<AutomationDispatchDeps['executeRules']>)
