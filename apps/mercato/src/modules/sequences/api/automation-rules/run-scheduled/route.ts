@@ -144,7 +144,7 @@ async function executeScheduledAction(
   switch (actionType) {
     case 'send_email': {
       if (!context.contactId) return { success: false, detail: 'No contactId in context' }
-      const contact = await knex('customer_entities').where('id', context.contactId).first()
+      const contact = await knex('customer_entities').where('id', context.contactId).where('organization_id', orgId).first()
       // Raw knex skips the decrypting subscriber, so this scheduled automation
       // addressed its email to ciphertext and greeted the person by it.
       if (contact) {
@@ -258,6 +258,25 @@ async function executeScheduledAction(
   }
 }
 
+/**
+ * Which real records a scheduled target stands for. Only a contact target is
+ * a contact; an overdue invoice carries its contact; a stale deal is a deal;
+ * the daily-summary and generic targets are placeholders ('summary',
+ * 'trigger') and must never reach a uuid column as a contact id.
+ */
+export function scheduleTargetIds(scheduleType: unknown, target: Record<string, any>): { contactId: string | null; dealId?: string; invoiceId?: string } {
+  switch (scheduleType) {
+    case 'inactive_contacts':
+      return { contactId: target.id ?? null }
+    case 'invoice_overdue':
+      return { contactId: target.contact_id ?? null, invoiceId: target.id }
+    case 'stale_deals':
+      return { contactId: null, dealId: target.id }
+    default:
+      return { contactId: null }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Run one organization's scheduled rules
 // ---------------------------------------------------------------------------
@@ -342,7 +361,7 @@ export async function runScheduledRulesForOrg(
       for (const target of targets) {
         const context: Record<string, any> = {
           ...target,
-          contactId: target.contact_id || target.id,
+          ...scheduleTargetIds(triggerConfig.scheduleType, target),
           triggerType: 'schedule',
           scheduleType: triggerConfig.scheduleType,
           reference: target.reference || target.id,
@@ -359,7 +378,7 @@ export async function runScheduledRulesForOrg(
               await knex('automation_rule_logs').insert({
                 id: require('crypto').randomUUID(),
                 rule_id: rule.id,
-                contact_id: context.contactId !== 'summary' && context.contactId !== 'trigger' ? context.contactId : null,
+                contact_id: context.contactId ?? null,
                 trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
                 action_result: JSON.stringify(stepResult),
                 status: stepResult.success ? 'executed' : 'failed',
@@ -375,7 +394,7 @@ export async function runScheduledRulesForOrg(
           await knex('automation_rule_logs').insert({
             id: require('crypto').randomUUID(),
             rule_id: rule.id,
-            contact_id: context.contactId !== 'summary' && context.contactId !== 'trigger' ? context.contactId : null,
+            contact_id: context.contactId ?? null,
             trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
             action_result: JSON.stringify(stepResult),
             status: stepResult.success ? 'executed' : 'failed',
