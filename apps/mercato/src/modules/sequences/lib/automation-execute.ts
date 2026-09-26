@@ -470,25 +470,15 @@ async function executeAction(
     }
 
     case 'webhook': {
-      if (!actionConfig.url) return { success: false, detail: 'Webhook URL required' }
-
-      try {
-        const res = await fetch(actionConfig.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(actionConfig.headers || {}),
-          },
-          body: JSON.stringify({
-            event: context.triggerType || 'automation_rule',
-            timestamp: new Date().toISOString(),
-            data: context,
-          }),
-        })
-        return { success: res.ok, detail: `Webhook ${res.ok ? 'delivered' : 'failed'}: ${res.status}` }
-      } catch (err) {
-        return { success: false, detail: `Webhook error: ${err instanceof Error ? err.message : 'Unknown'}` }
-      }
+      // Signed with the business's signing secret (X-Noli-Signature), public
+      // targets only (./automation-webhook.ts).
+      const { sendAutomationWebhook } = await import('./automation-webhook')
+      return sendAutomationWebhook(knex, { organizationId: orgId, tenantId }, {
+        url: actionConfig.url,
+        headers: actionConfig.headers,
+        event: context.triggerType || 'automation_rule',
+        data: context,
+      })
     }
 
     case 'apply_task_template': {
