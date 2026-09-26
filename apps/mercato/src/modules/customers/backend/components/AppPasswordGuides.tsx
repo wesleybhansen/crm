@@ -14,7 +14,7 @@ export default function AppPasswordGuides() {
 
   return (
     <div className="space-y-1">
-      <p className="text-xs font-medium text-foreground mb-2">How to get your App Password — select your provider:</p>
+      <p className="text-xs font-medium text-foreground mb-2">How to get your App Password (select your provider):</p>
 
       {/* Gmail */}
       <div className="rounded-md border overflow-hidden">
