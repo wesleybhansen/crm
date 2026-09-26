@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye, Zap, ArrowRight } from 'lucide-react'
+import { Settings, Monitor, Key, User, Moon, Sun, Check, Mail, X as XIcon, Server, Send, CreditCard, Phone, Sparkles, Briefcase, Smile, Minus, Kanban, Users as UsersIcon, GripVertical, Pencil, Trash2, Plus, ChevronUp, ChevronDown, BookOpen, LayoutDashboard, EyeOff, Eye, Zap, ArrowRight, ShieldCheck } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
 import { EMAIL_CONNECT_URL } from '@/modules/email/lib/connect-url'
+
+const ROLE_MANAGEMENT_FEATURES = ['auth.roles.list', 'auth.roles.manage']
 
 export default function SimpleSettingsPage() {
   const [mode, setMode] = useState('simple')
@@ -112,6 +114,10 @@ export default function SimpleSettingsPage() {
   const [teamInvites, setTeamInvites] = useState<Array<{id:string,email:string,role:string,created_at:string,expires_at:string,invited_by_name:string}>>([])
   const [teamSeats, setTeamSeats] = useState({ used: 0, max: 5 })
   const [currentUserRole, setCurrentUserRole] = useState('')
+  // The Roles page (/backend/roles) has no menu entry in simple mode, so Team
+  // links to it for whoever may open it and edit roles (same features the
+  // page and the role editor require).
+  const [canManageRoles, setCanManageRoles] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('member')
   const [inviting, setInviting] = useState(false)
@@ -243,6 +249,15 @@ export default function SimpleSettingsPage() {
           setCurrentUserRole(d.data.currentUserRole || '')
         }
       })
+      .catch(() => {})
+    fetch('/api/auth/feature-check', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ features: ROLE_MANAGEMENT_FEATURES }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setCanManageRoles(d?.ok === true))
       .catch(() => {})
   }, [])
 
@@ -739,6 +754,24 @@ export default function SimpleSettingsPage() {
             <div className="px-4 py-6 text-center text-xs text-muted-foreground">
               No team members yet. Send an invite to get started.
             </div>
+          )}
+
+          {canManageRoles && (
+            <a href="/backend/roles" className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/40 transition">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="size-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  <ShieldCheck className="size-4 text-muted-foreground" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Roles and permissions</p>
+                  <p className="text-xs text-muted-foreground">Choose what each role on your team can see and change.</p>
+                </div>
+              </div>
+              <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground shrink-0">
+                <span className="hidden sm:inline">Manage roles</span>
+                <ArrowRight className="size-4" />
+              </span>
+            </a>
           )}
         </div>
       </section>
