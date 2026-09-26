@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
+import { findSmsOptOutsByNumber, normalizeSmsNumber } from '@/modules/customers/lib/sms-opt-outs'
 import { sendChatReply } from '@/modules/customers/lib/send-chat-reply'
 
 /* Internal service endpoint (shared NOLI_INTERNAL_SERVICE_SECRET) that lets the
@@ -84,6 +85,19 @@ async function listDrafts(knex: Knex, auth: Auth, limit: number, source: string)
     .orderBy('a.created_at', 'desc')
     .limit(limit)
 
+  // SMS drafts to a number that opted out of texts carry the date (ISO).
+  const smsOptOuts = await findSmsOptOutsByNumber(
+    knex,
+    { organizationId: auth.orgId, tenantId: auth.tenantId },
+    actions
+      .map((row: Record<string, unknown>) => safeParse(row.payload))
+      .filter((p: Record<string, unknown> | null) => !!p && p.channel === 'sms')
+      .map((p: Record<string, unknown>) => p.to),
+  ).catch((err: unknown) => {
+    console.error('[cs-queue] opt-out list unavailable', err instanceof Error ? err.message : err)
+    return new Map()
+  })
+
   return actions.map((row: Record<string, unknown>) => {
     const payload = safeParse(row.payload)
     const participants = (() => {
@@ -110,6 +124,9 @@ async function listDrafts(knex: Knex, auth: Auth, limit: number, source: string)
       subject: (payload.subject as string) || null,
       draftBody: (payload.body as string) || '',
       summary: (row.summary as string) || null,
+      smsOptedOutAt: channel === 'sms'
+        ? (smsOptOuts.get(normalizeSmsNumber(payload.to) || '')?.optedOutAt.toISOString() ?? null)
+        : null,
     }
   })
 }

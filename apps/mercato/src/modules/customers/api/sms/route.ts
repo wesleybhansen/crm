@@ -8,6 +8,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findContactByPhone } from '@/modules/customers/lib/dedup'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
+import {
+  SMS_OPTED_OUT_CODE,
+  findSmsOptOut,
+  isTwilioUnsubscribedError,
+  recordSmsOptOut,
+  smsOptedOutReason,
+} from '@/modules/customers/lib/sms-opt-outs'
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -46,6 +53,17 @@ export async function POST(req: Request) {
     else if (normalizedTo.match(/^1\d{10}$/)) normalizedTo = `+${normalizedTo}` // 11 digits starting with 1 → +1
     else if (!normalizedTo.startsWith('+')) normalizedTo = `+${normalizedTo}` // ensure + prefix
 
+    // A one-to-one text typed by a person: if this number opted out of the
+    // business's texts (replied STOP), block it with the reason. Carriers
+    // would drop it anyway; this says so instead of pretending to send.
+    const optOut = await findSmsOptOut(knex, { organizationId: auth.orgId, tenantId: auth.tenantId }, [normalizedTo])
+    if (optOut) {
+      return NextResponse.json(
+        { ok: false, code: SMS_OPTED_OUT_CODE, error: smsOptedOutReason(optOut), optedOutAt: optOut.optedOutAt.toISOString() },
+        { status: 409 },
+      )
+    }
+
     // Look up the org's Twilio connection
     const twilioConnection = await knex('twilio_connections')
       .where('organization_id', auth.orgId)
@@ -71,6 +89,7 @@ export async function POST(req: Request) {
     const id = require('crypto').randomUUID()
     let status = 'queued'
     let twilioSid = null
+    let carrierUnsubscribed = false
 
     try {
       const twilioRes = await fetch(
@@ -90,7 +109,8 @@ export async function POST(req: Request) {
         twilioSid = twilioData.sid
       } else {
         status = 'failed'
-        console.error('[sms] Twilio error:', twilioData)
+        carrierUnsubscribed = isTwilioUnsubscribedError(twilioData)
+        console.error('[sms] Twilio error:', { code: twilioData?.code ?? null, status: twilioData?.status ?? null })
       }
     } catch (err) {
       status = 'failed'
@@ -104,6 +124,19 @@ export async function POST(req: Request) {
       body: message, status, twilio_sid: twilioSid,
       created_at: new Date(),
     })
+
+    if (carrierUnsubscribed) {
+      // Twilio 21610: the number unsubscribed from this sender. Record the
+      // opt-out so nothing else is attempted, and tell the person why.
+      const at = new Date()
+      await recordSmsOptOut(knex, { organizationId: auth.orgId, tenantId: auth.tenantId }, {
+        phone: normalizedTo, contactId: contactId || null, source: 'carrier', at,
+      }).catch((err: unknown) => console.error('[sms] could not record the opt-out', err instanceof Error ? err.message : err))
+      return NextResponse.json(
+        { ok: false, code: SMS_OPTED_OUT_CODE, error: smsOptedOutReason({ optedOutAt: at, source: 'carrier', keyword: null }), optedOutAt: at.toISOString() },
+        { status: 409 },
+      )
+    }
 
     // Update unified inbox — always create/update even without contactId
     {

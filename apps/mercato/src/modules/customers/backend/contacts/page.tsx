@@ -106,6 +106,8 @@ export default function ContactsPage() {
   const [showEmailModal, setShowEmailModal] = useState(false)
   const [showDealModal, setShowDealModal] = useState(false)
   const [showSmsModal, setShowSmsModal] = useState(false)
+  // Texts opt-out for the selected contact's number (they replied STOP).
+  const [smsOptOut, setSmsOptOut] = useState<{ contactId: string; optedOutAt: string } | null>(null)
   const [newNote, setNewNote] = useState('')
   const [newTask, setNewTask] = useState('')
   const [newTaskDue, setNewTaskDue] = useState('')
@@ -227,6 +229,14 @@ export default function ContactsPage() {
       .then(r => r.json()).then(d => { if (d.ok) setSentimentInfo(d.data || null) }).catch(() => setSentimentInfo(null))
     fetch(`/api/contacts/${contact.id}/attachments`, { credentials: 'include' })
       .then(r => r.json()).then(d => { if (d.ok) setAttachments(d.data || []) }).catch(() => setAttachments([]))
+    // Did this person opt out of texts (replied STOP)? Shown by the phone number.
+    setSmsOptOut(null)
+    if (contact.primary_phone) {
+      fetch(`/api/sms/opt-out?contactId=${encodeURIComponent(contact.id)}`, { credentials: 'include' })
+        .then(r => r.json())
+        .then(d => { if (d.ok && d.data?.optedOut && d.data.optedOutAt) setSmsOptOut({ contactId: contact.id, optedOutAt: d.data.optedOutAt }) })
+        .catch(() => {})
+    }
     // Reset AI summary — user must click button to generate
     setContactSummary(null)
     setSummaryIsAi(false)
@@ -267,6 +277,7 @@ export default function ContactsPage() {
     setEngagementEvents([])
     setShowScoreWhy(false)
     setSentimentInfo(null)
+    setSmsOptOut(null)
   }
 
   async function addTag() {
@@ -1336,6 +1347,7 @@ export default function ContactsPage() {
           contactName={selectedContact.display_name}
           contactPhone={selectedContact.primary_phone || ''}
           contactId={selectedContact.id}
+          smsOptedOutAt={smsOptOut?.contactId === selectedContact.id ? smsOptOut.optedOutAt : null}
           onClose={() => setShowSmsModal(false)}
           onSent={() => setShowSmsModal(false)}
         />
@@ -1499,6 +1511,11 @@ export default function ContactsPage() {
               {selectedContact.primary_phone && (
                 <span className="flex items-center gap-1"><Phone className="size-3" /> {selectedContact.primary_phone}</span>
               )}
+              {selectedContact.primary_phone && smsOptOut?.contactId === selectedContact.id && (
+                <span className="flex items-center gap-1 font-medium text-[#b91c1c] dark:text-[#f87171]">
+                  <MessageSquare className="size-3" /> Texts: opted out on {formatOptOutDay(smsOptOut.optedOutAt)}
+                </span>
+              )}
               {selectedContact.lifecycle_stage && (
                 <span className="flex items-center gap-1"><Tag className="size-3" /> {selectedContact.lifecycle_stage}</span>
               )}
@@ -1608,7 +1625,8 @@ export default function ContactsPage() {
               <StickyNote className="size-3.5 mr-1.5" /> Note
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => setShowSmsModal(true)}
-              disabled={!selectedContact?.primary_phone}>
+              disabled={!selectedContact?.primary_phone || smsOptOut?.contactId === selectedContact?.id}
+              title={smsOptOut?.contactId === selectedContact?.id ? 'This person opted out of your texts (replied STOP)' : undefined}>
               <MessageSquare className="size-3.5 mr-1.5" /> Text
             </Button>
           </div>
@@ -1663,6 +1681,16 @@ export default function ContactsPage() {
               <div className="space-y-3">
                 <DetailRow icon={Mail} label="Email" value={selectedContact.primary_email} />
                 <DetailRow icon={Phone} label="Phone" value={selectedContact.primary_phone} />
+                {selectedContact.primary_phone && smsOptOut?.contactId === selectedContact.id && (
+                  <div className="flex items-start gap-3">
+                    <MessageSquare className="size-3.5 text-[#b91c1c] dark:text-[#f87171] shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Texts</p>
+                      <p className="text-sm font-medium text-[#b91c1c] dark:text-[#f87171]">Opted out on {formatOptOutDay(smsOptOut.optedOutAt)}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">They replied STOP to your number, so no texts are sent to them. Email is not affected. They can text START to opt back in.</p>
+                    </div>
+                  </div>
+                )}
                 <DetailRow icon={Tag} label="Source" value={contactSourceLabel(selectedContact.source) ?? selectedContact.source} />
                 <div className="flex items-center gap-2">
                   <Tag className="size-4 text-muted-foreground shrink-0" />
@@ -2065,6 +2093,11 @@ function DetailRow({ icon: Icon, label, value }: { icon: any; label: string; val
       </div>
     </div>
   )
+}
+
+function formatOptOutDay(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? 'an earlier date' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function formatRelativeTime(time: string): string {

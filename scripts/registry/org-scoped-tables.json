@@ -127,6 +127,7 @@
     "reminders",
     "scheduled_jobs",
     "search_tokens",
+    "sms_opt_outs",
     "staff_leave_requests",
     "staff_team_member_activities",
     "staff_team_member_addresses",

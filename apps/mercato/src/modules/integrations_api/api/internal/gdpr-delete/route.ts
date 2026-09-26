@@ -76,6 +76,7 @@ const ORG_TABLES = [
   'entity_indexes',
   'vector_search',
   // Contact-scoped PII + activity.
+  'sms_opt_outs',
   'contact_timeline_events',
   'contact_engagement_scores',
   'contact_attachments',

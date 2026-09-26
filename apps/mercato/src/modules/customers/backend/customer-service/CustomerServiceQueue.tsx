@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Globe, Clock, FileEdit, Flag } from 'lucide-react'
+import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Globe, Clock, FileEdit, Flag, Ban } from 'lucide-react'
 import { fillResponseTemplate } from '../../lib/response-templates'
 
 type Bucket = { total: number; email: number; sms: number; chat?: number }
@@ -199,6 +199,13 @@ type QueueItem = {
   lastInboundBody: string | null
   subject: string | null
   body: string | null
+  /** SMS only: when the person opted out of texts (replied STOP), else null. */
+  smsOptedOutAt?: string | null
+}
+
+function formatOptOutDate(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export type CustomerServiceQueueProps = {
@@ -354,6 +361,7 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetup }
         const isSms = item.channel === 'sms'
         const isChat = item.channel === 'chat'
         const contactHandle = isSms ? item.contact.phone : item.contact.email
+        const optedOutAt = isSms && item.smsOptedOutAt ? item.smsOptedOutAt : null
         const flagLabels = (item.flagReasons || []).map(r => r.label).filter(Boolean)
         const isFlagged = !!item.flagged && flagLabels.length > 0
         return (
@@ -363,6 +371,13 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetup }
               <div className="flex items-center gap-2 px-4 py-2 bg-[#fffbeb] dark:bg-[#f59e0b]/10 text-[#b45309] dark:text-[#fbbf24] text-xs font-medium">
                 <Flag className="size-3.5 shrink-0" />
                 <span className="truncate">Flagged: {flagLabels.join(', ')}</span>
+              </div>
+            )}
+            {/* Opted out of texts: this reply cannot be sent. */}
+            {optedOutAt && (
+              <div role="status" className="flex items-start gap-2 px-4 py-2 bg-[#fef2f2] dark:bg-[#ef4444]/10 text-[#b91c1c] dark:text-[#f87171] text-xs font-medium">
+                <Ban className="size-3.5 shrink-0 mt-px" />
+                <span>Texts: opted out on {formatOptOutDate(optedOutAt)}. They replied STOP, so this reply cannot be sent. Dismiss it, or reach them another way.</span>
               </div>
             )}
             {/* Assisted mode: why this reply waits for approval instead of sending. */}
@@ -460,7 +475,8 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetup }
                 {itemBusy === 'dismiss' ? <Loader2 className="size-3.5 mr-1 animate-spin" /> : <X className="size-3.5 mr-1" />}
                 Dismiss
               </Button>
-              <Button type="button" size="sm" onClick={() => approve(item.id)} disabled={!!itemBusy || !(drafts[item.id] ?? '').trim()}>
+              <Button type="button" size="sm" onClick={() => approve(item.id)} disabled={!!itemBusy || !!optedOutAt || !(drafts[item.id] ?? '').trim()}
+                title={optedOutAt ? 'This person opted out of your texts' : undefined}>
                 {itemBusy === 'approve' ? <Loader2 className="size-3.5 mr-1 animate-spin" /> : <Send className="size-3.5 mr-1" />}
                 Approve and send
               </Button>

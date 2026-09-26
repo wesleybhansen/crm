@@ -249,6 +249,7 @@ export async function GET(
           lifecycle_change: 'TrendingUp', pipeline_change: 'Activity', engagement_change: 'Flame',
           payment: 'DollarSign', survey_response: 'FileText', chat: 'MessageSquare',
           event_registration: 'CalendarCheck', course_enrollment: 'BookOpen', booking_created: 'CalendarDays',
+          sms_opted_out: 'MessageSquare', sms_opted_in: 'MessageSquare',
         }
         const typeMap: Record<string, string> = {
           lifecycle_change: 'activity', pipeline_change: 'activity', engagement_change: 'engagement',

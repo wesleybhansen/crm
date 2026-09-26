@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
+import { findSmsOptOutsByNumber, normalizeSmsNumber } from '@/modules/customers/lib/sms-opt-outs'
 
 /* Internal service endpoint (shared NOLI_INTERNAL_SERVICE_SECRET) for the hub's
  * Unified Inbox Texts tab: report whether the org's Twilio SMS line is set up,
@@ -66,7 +67,21 @@ export async function POST(req: Request) {
         .orderBy('created_at', 'desc')
         .limit(limit)
         .select('id', 'direction', 'from_number', 'to_number', 'body', 'created_at')
-      return NextResponse.json({ ok: true, data: rows })
+      // The other party's number opted out of this business's texts (replied
+      // STOP)? Each row carries the date (ISO) or null, so the thread can say
+      // so; a send to that number is refused with the reason.
+      const counterparty = (r: { direction?: string; from_number?: string; to_number?: string }) =>
+        r.direction === 'inbound' ? r.from_number : r.to_number
+      const optOuts = await findSmsOptOutsByNumber(knex, { organizationId: auth.orgId, tenantId: auth.tenantId }, rows.map(counterparty))
+        .catch((err: unknown) => {
+          console.error('[internal.texts] opt-out list unavailable', err instanceof Error ? err.message : err)
+          return new Map()
+        })
+      const data = rows.map((r: Record<string, unknown>) => ({
+        ...r,
+        sms_opted_out_at: optOuts.get(normalizeSmsNumber(counterparty(r as never)) || '')?.optedOutAt.toISOString() ?? null,
+      }))
+      return NextResponse.json({ ok: true, data })
     }
 
     if (op === 'send') {
@@ -74,7 +89,10 @@ export async function POST(req: Request) {
       const text = typeof body.body === 'string' ? body.body : ''
       if (!to || !text.trim()) return NextResponse.json({ ok: false, error: 'A phone number and a message are required' }, { status: 400 })
       const r = await sendSmsReply(knex, auth.orgId, auth.tenantId, { to, body: text })
-      return NextResponse.json({ ok: r.ok, ...(r.ok ? {} : { error: r.error }) }, { status: r.ok ? 200 : (r.status || 502) })
+      return NextResponse.json(
+        { ok: r.ok, ...(r.ok ? {} : { error: r.error, ...(r.code ? { code: r.code, optedOutAt: r.optedOutAt ?? null } : {}) }) },
+        { status: r.ok ? 200 : (r.status || 502) },
+      )
     }
 
     return NextResponse.json({ ok: false, error: 'unknown op' }, { status: 400 })
