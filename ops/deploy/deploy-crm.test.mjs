@@ -20,20 +20,18 @@ function sandbox({ activeUnits = '' } = {}) {
   stub('docker', 'echo "docker must not run in a dry run" >&2; exit 99')
   stub('systemd-run', 'echo "systemd-run must not run in a dry run" >&2; exit 99')
   const base = join(dir, 'base.yml')
-  const overlay = join(dir, 'overlay.yml')
   writeFileSync(base, 'services: {}\n')
-  writeFileSync(overlay, 'services: {}\n')
   return {
-    dir, base, overlay,
+    dir, base,
     run: (args, env = {}) => spawnSync('bash', [SCRIPT, ...args], {
       encoding: 'utf8',
-      env: { PATH: `${bin}:/usr/bin:/bin`, CRM_REPO_DIR: dir, CRM_COMPOSE_BASE: base, CRM_COMPOSE_OVERLAY: overlay, ...env },
+      env: { PATH: `${bin}:/usr/bin:/bin`, CRM_REPO_DIR: dir, CRM_COMPOSE_BASE: base, ...env },
     }),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   }
 }
 
-test('dry run: both compose files, cached build, preflight, systemd-run unit, DEPLOY_DONE marker', () => {
+test('dry run: docker-compose.prod.yml only, cached build, preflight, systemd-run unit, DEPLOY_DONE marker', () => {
   const box = sandbox()
   try {
     const r = box.run(['--dry-run', '--ref', 'deadbeef'])
@@ -43,7 +41,8 @@ test('dry run: both compose files, cached build, preflight, systemd-run unit, DE
     assert.ok(systemdLine, out)
     assert.match(systemdLine, /--unit=crm-deploy-\d+/)
     assert.equal(systemdLine.split(`-f ${box.base}`).length - 1, 2, 'base file on build and up')
-    assert.equal(systemdLine.split(`-f ${box.overlay}`).length - 1, 2, 'overlay file on build and up')
+    assert.equal(systemdLine.split(' -f ').length - 1, 2, 'no other compose file (the Vault overlay is retired)')
+    assert.doesNotMatch(systemdLine, /vault/i)
     assert.match(systemdLine, /build app/)
     assert.doesNotMatch(systemdLine, /--no-cache/, 'cache is on by default')
     assert.match(systemdLine, /up -d --force-recreate app mcp gtm-mailbox-worker gtm-execution-worker gtm-auto-refill-worker scheduler-worker/)
@@ -76,10 +75,19 @@ test('refuses while another crm-* unit is active', () => {
   } finally { box.cleanup() }
 })
 
-test('fails fast when either compose file is missing', () => {
+test('runs without the retired Vault overlay file on the box', () => {
   const box = sandbox()
   try {
     const r = box.run(['--dry-run'], { CRM_COMPOSE_OVERLAY: join(box.dir, 'nope.yml') })
+    assert.equal(r.status, 0, r.stderr)
+    assert.doesNotMatch(r.stdout, /nope\.yml/)
+  } finally { box.cleanup() }
+})
+
+test('fails fast when the compose file is missing', () => {
+  const box = sandbox()
+  try {
+    const r = box.run(['--dry-run'], { CRM_COMPOSE_BASE: join(box.dir, 'nope.yml') })
     assert.equal(r.status, 66)
     assert.match(r.stderr, /Compose file missing: .*nope\.yml/)
     assert.equal((r.stdout.match(/DEPLOY_FAILED step=compose-files rc=66/g) ?? []).length, 1, 'one failure marker')

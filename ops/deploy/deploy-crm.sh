@@ -13,8 +13,9 @@
 #                still runs, it is read-only)
 #
 # What it guarantees, each learned the hard way:
-#   1. BOTH compose files, always. Deploying with only docker-compose.prod.yml
-#      drops the Vault overlay and the project drifts (2026-09-25).
+#   1. One compose file, docker-compose.prod.yml, exactly as the running stack
+#      uses it. The Vault overlay was retired 2026-09-17 (c493ea122; its app
+#      section was identical to the base file) and is no longer required.
 #   2. Never two builds at once: refuses while any other crm-* systemd unit is
 #      active. Two builds thrashed memory and took the site offline (2026-09-11).
 #   3. The GTM preflight passes first: no deploy cuts a paid research run off.
@@ -27,7 +28,6 @@
 # Environment overrides (defaults are production):
 #   CRM_REPO_DIR          /root/open-mercato
 #   CRM_COMPOSE_BASE      /root/open-mercato/docker-compose.prod.yml
-#   CRM_COMPOSE_OVERLAY   /root/releases/noli-v1-vault-c2ccad6e/docker-compose.prod.yml
 #   CRM_BUILD_SERVICE     app
 #   CRM_UP_SERVICES       app mcp gtm-mailbox-worker gtm-execution-worker gtm-auto-refill-worker scheduler-worker
 #   CRM_PREFLIGHT_MINUTES 60
@@ -38,7 +38,6 @@ set -euo pipefail
 
 REPO_DIR="${CRM_REPO_DIR:-/root/open-mercato}"
 COMPOSE_BASE="${CRM_COMPOSE_BASE:-/root/open-mercato/docker-compose.prod.yml}"
-COMPOSE_OVERLAY="${CRM_COMPOSE_OVERLAY:-/root/releases/noli-v1-vault-c2ccad6e/docker-compose.prod.yml}"
 BUILD_SERVICE="${CRM_BUILD_SERVICE:-app}"
 UP_SERVICES="${CRM_UP_SERVICES:-app mcp gtm-mailbox-worker gtm-execution-worker gtm-auto-refill-worker scheduler-worker}"
 PREFLIGHT_MINUTES="${CRM_PREFLIGHT_MINUTES:-60}"
@@ -79,10 +78,8 @@ run() {
 }
 
 STEP="compose-files"
-for file in "$COMPOSE_BASE" "$COMPOSE_OVERLAY"; do
-  [ -f "$file" ] || fail 66 "Compose file missing: $file. Both files are required; refusing to deploy without the Vault overlay."
-done
-COMPOSE=(docker compose -f "$COMPOSE_BASE" -f "$COMPOSE_OVERLAY")
+[ -f "$COMPOSE_BASE" ] || fail 66 "Compose file missing: $COMPOSE_BASE. Refusing to deploy."
+COMPOSE=(docker compose -f "$COMPOSE_BASE")
 
 STEP="busy-check"
 ACTIVE="$(systemctl list-units 'crm-*' --no-legend --plain --state=active,activating 2>/dev/null || true)"

@@ -78,7 +78,7 @@ ssh root@5.78.71.144 'ls -lh /root/backups/db/broken-state-*'
 ### Step 2 — Stop the app so nothing writes to the DB during the restore
 
 ```bash
-ssh root@5.78.71.144 'docker compose -f /root/open-mercato/docker-compose.prod.yml -f /root/releases/noli-v1-vault-c2ccad6e/docker-compose.prod.yml stop app'
+ssh root@5.78.71.144 'docker compose -f /root/open-mercato/docker-compose.prod.yml stop app'
 ```
 
 ### Step 3 — Drop and recreate the database from the checkpoint
@@ -122,7 +122,7 @@ ops/deploy/deploy-crm.sh --ref checkpoint-pre-tier0-2026-04-09
 
 ```bash
 # Containers up?
-docker compose -f /root/open-mercato/docker-compose.prod.yml -f /root/releases/noli-v1-vault-c2ccad6e/docker-compose.prod.yml ps
+docker compose -f /root/open-mercato/docker-compose.prod.yml ps
 
 # App responding?
 curl -sI https://crm.thelaunchpadincubator.com/ | head -3
