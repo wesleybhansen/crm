@@ -1,8 +1,12 @@
 import {
   DEAL_CLOSED_EVENT_ID,
+  DEAL_LOST_EVENT_ID,
   emitDealClosedIfTransitioned,
+  emitDealLostIfTransitioned,
   isDealClosedTransition,
   isDealClosedWon,
+  isDealLost,
+  isDealLostTransition,
 } from '../dealClosed'
 
 describe('isDealClosedWon', () => {
@@ -80,5 +84,72 @@ describe('emitDealClosedIfTransitioned', () => {
     const failing = { emitEvent: jest.fn().mockRejectedValue(new Error('bus down')) }
     await expect(emitDealClosedIfTransitioned(failing, { ...ids, before: { status: 'open' }, after: { status: 'win' } })).resolves.toBe(false)
     await expect(emitDealClosedIfTransitioned(null, { ...ids, before: { status: 'open' }, after: { status: 'win' } })).resolves.toBe(false)
+  })
+})
+
+describe('isDealLost', () => {
+  it.each([
+    [{ status: 'lost' }, true],
+    [{ status: 'loose' }, true],
+    [{ status: 'lose' }, true],
+    [{ status: 'closed_lost' }, true],
+    [{ status: 'open', pipelineStage: 'Lost' }, true],
+    [{ status: 'open', pipelineStage: 'Closed Lost' }, true],
+    [{ status: 'open', pipelineStage: 'Fell through' }, true],
+    [{ status: 'win', pipelineStage: 'Lost' }, true],
+    [{ status: 'open', pipelineStage: 'Negotiation' }, false],
+    [{ status: 'win', pipelineStage: 'Won' }, false],
+    [{ status: 'open', pipelineStage: 'Closed' }, false],
+    [{ status: null, pipelineStage: null }, false],
+  ])('%j -> %s', (deal, expected) => {
+    expect(isDealLost(deal)).toBe(expected)
+  })
+
+  it('never counts a deal both won and lost', () => {
+    for (const deal of [{ status: 'win', pipelineStage: 'Lost' }, { status: 'lost', pipelineStage: 'Won' }, { status: 'closed', pipelineStage: 'Closed Lost' }]) {
+      expect(isDealLost(deal) && isDealClosedWon(deal)).toBe(false)
+    }
+  })
+})
+
+describe('emitDealLostIfTransitioned', () => {
+  const lostIds = { id: 'deal-9', organizationId: 'org-1', tenantId: 'tenant-1' }
+
+  it('is a transition only when the deal moves into a lost state', () => {
+    expect(isDealLostTransition({ status: 'open', pipelineStage: 'Offer' }, { status: 'lost', pipelineStage: 'Lost' })).toBe(true)
+    expect(isDealLostTransition({ status: 'lost' }, { status: 'lost', pipelineStage: 'Lost' })).toBe(false)
+    expect(isDealLostTransition({ status: 'lost' }, { status: 'open' })).toBe(false)
+  })
+
+  it('emits one customers.deal.lost for a move into Lost, and again after a reopen', async () => {
+    const emitEvent = jest.fn()
+    const lostAt = new Date('2026-09-30T16:00:00.000Z')
+    await expect(emitDealLostIfTransitioned({ emitEvent }, {
+      ...lostIds,
+      before: { status: 'open', pipelineStage: 'Offer' },
+      after: { status: 'lost', pipelineStage: 'Lost' },
+      lostAt,
+    })).resolves.toBe(true)
+    expect(emitEvent).toHaveBeenCalledWith(
+      DEAL_LOST_EVENT_ID,
+      { ...lostIds, lostAt: lostAt.toISOString(), status: 'lost', stage: 'Lost' },
+      { persistent: true },
+    )
+    await emitDealLostIfTransitioned({ emitEvent }, { ...lostIds, before: { status: 'lost', pipelineStage: 'Lost' }, after: { status: 'lost', pipelineStage: 'Lost' } })
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    await emitDealLostIfTransitioned({ emitEvent }, { ...lostIds, before: { status: 'open', pipelineStage: 'Offer' }, after: { status: 'lost', pipelineStage: 'Lost' } })
+    expect(emitEvent).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not emit a lost event for a win', async () => {
+    const emitEvent = jest.fn()
+    await emitDealLostIfTransitioned({ emitEvent }, { ...lostIds, before: { status: 'open' }, after: { status: 'win', pipelineStage: 'Won' } })
+    expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  it('never throws when the bus fails or is missing', async () => {
+    const failing = { emitEvent: jest.fn().mockRejectedValue(new Error('bus down')) }
+    await expect(emitDealLostIfTransitioned(failing, { ...lostIds, before: { status: 'open' }, after: { status: 'lost' } })).resolves.toBe(false)
+    await expect(emitDealLostIfTransitioned(null, { ...lostIds, before: { status: 'open' }, after: { status: 'lost' } })).resolves.toBe(false)
   })
 })

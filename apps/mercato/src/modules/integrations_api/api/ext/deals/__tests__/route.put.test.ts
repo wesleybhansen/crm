@@ -119,6 +119,21 @@ describe('PUT /ext/deals (pipeline board drag)', () => {
     expect((createNotification.mock.calls[0] as unknown[])[0]).toMatchObject({ type: 'customers.deal.lost' })
   })
 
+  it('fires customers.deal.lost once per loss (the "Deal Lost" automation trigger), never for a win', async () => {
+    await put({ id: 'd1', pipeline_stage: 'Lost' })
+    expect(eventsNamed('customers.deal.lost')).toHaveLength(1)
+    expect(eventsNamed('customers.deal.lost')[0][1]).toMatchObject({ id: 'd1', organizationId: 'o1', tenantId: 't1', status: 'lost', stage: 'Lost' })
+    // Saving the lost deal again is not a second loss.
+    await put({ id: 'd1', pipeline_stage: 'Lost' })
+    expect(eventsNamed('customers.deal.lost')).toHaveLength(1)
+    // Reopened, then lost again, is.
+    await put({ id: 'd1', pipeline_stage: 'Proposal' })
+    await put({ id: 'd1', status: 'lost' })
+    expect(eventsNamed('customers.deal.lost')).toHaveLength(2)
+    await put({ id: 'd1', pipeline_stage: 'Won' })
+    expect(eventsNamed('customers.deal.lost')).toHaveLength(2)
+  })
+
   it('dragging a won deal back to an ordinary stage reopens it', async () => {
     deal.status = 'win'
     deal.pipeline_stage = 'Won'

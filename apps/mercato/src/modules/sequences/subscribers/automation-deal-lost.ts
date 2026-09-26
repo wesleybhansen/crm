@@ -1,18 +1,18 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { dealWonEventKey, dispatchAutomationTrigger, loadDealContext } from '../lib/automation-dispatch'
+import { dealLostEventKey, dispatchAutomationTrigger, loadDealContext } from '../lib/automation-dispatch'
 
 /**
- * A deal was won or closed: run the org's `deal_won` automation rules and
- * sequences, once per win. A deal reopened and won again fires again (the key
- * carries the win's closedAt); a replayed or retried event never does.
+ * A deal was marked lost (a lost status, or a move into a Lost stage): run the
+ * org's `deal_lost` automation rules, once per loss. Lost, reopened and lost
+ * again fires again; a replayed or retried event never does.
  */
 export const metadata = {
-  event: 'customers.deal.closed',
+  event: 'customers.deal.lost',
   persistent: true,
-  id: 'sequences:automation-deal-won',
+  id: 'sequences:automation-deal-lost',
 }
 
-type Payload = { id?: string; organizationId?: string; tenantId?: string; closedAt?: string; stage?: string | null; status?: string | null }
+type Payload = { id?: string; organizationId?: string; tenantId?: string; lostAt?: string; stage?: string | null; status?: string | null }
 
 export default async function handler(payload: Payload, ctx: { resolve: <T = unknown>(name: string) => T }) {
   if (!payload?.id || !payload.organizationId || !payload.tenantId) return
@@ -23,23 +23,21 @@ export default async function handler(payload: Payload, ctx: { resolve: <T = unk
     if (!deal) return
     await dispatchAutomationTrigger(knex, {
       ...scope,
-      triggerType: 'deal_won',
-      eventKey: dealWonEventKey(payload.id, payload.closedAt),
+      triggerType: 'deal_lost',
+      eventKey: dealLostEventKey(payload.id, payload.lostAt),
       context: {
         dealId: deal.dealId,
         contactId: deal.contactId,
         pipelineId: deal.pipelineId,
-        stage: 'won',
+        stage: 'lost',
         toStage: payload.stage ?? deal.pipelineStage,
         status: payload.status ?? deal.status,
         reference: deal.reference,
         amount: deal.amount,
-        closedAt: payload.closedAt ?? null,
+        lostAt: payload.lostAt ?? null,
       },
-      // Sequences whose trigger is "Deal won" enroll the deal's contact.
-      sequenceTrigger: { type: 'deal_won' },
     })
   } catch (err) {
-    console.error('[sequences.automation-deal-won] dispatch failed', { dealId: payload.id, err })
+    console.error('[sequences.automation-deal-lost] dispatch failed', { dealId: payload.id, err })
   }
 }

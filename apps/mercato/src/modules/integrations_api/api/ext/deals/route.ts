@@ -243,9 +243,12 @@ export async function PUT(req: Request, ctx: any) {
 
     // One `customers.deal.closed` per move into a won/closed status or stage
     // (the marketing app's "just closed" handoff listens for it).
+    // Likewise one `customers.deal.lost` per move into a lost status or stage
+    // (automations with a "Deal Lost" trigger run on it).
     try {
-      const { emitDealClosedIfTransitioned } = await import('@open-mercato/core/modules/customers/lib/dealClosed')
-      await emitDealClosedIfTransitioned(container.resolve('eventBus') as Parameters<typeof emitDealClosedIfTransitioned>[0], {
+      const { emitDealClosedIfTransitioned, emitDealLostIfTransitioned } = await import('@open-mercato/core/modules/customers/lib/dealClosed')
+      const bus = container.resolve('eventBus') as Parameters<typeof emitDealClosedIfTransitioned>[0]
+      const transition = {
         id,
         organizationId: auth.orgId,
         tenantId: auth.tenantId,
@@ -254,7 +257,9 @@ export async function PUT(req: Request, ctx: any) {
           status: typeof finalStatus === 'string' ? finalStatus : null,
           pipelineStage: finalStage,
         },
-      })
+      }
+      await emitDealClosedIfTransitioned(bus, transition)
+      await emitDealLostIfTransitioned(bus, transition)
     } catch {}
 
     // Affiliate deal-win attribution: when the deal transitions to won,

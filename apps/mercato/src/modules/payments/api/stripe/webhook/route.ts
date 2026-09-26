@@ -15,6 +15,29 @@ import { paidEnrollmentRow, sendEnrollmentEmailOnce } from '../../../../courses/
 
 export const metadata = { POST: { requireAuth: false } }
 
+/** "Course Enrolled" automations and sequences for a paid enrollment, once per
+ *  enrollment. Never throws: a recorded payment must not be retried by Stripe
+ *  because an automation failed. */
+async function dispatchCourseEnrolledSafely(
+  knex: ReturnType<EntityManager['getKnex']>,
+  input: {
+    organizationId: string
+    tenantId: string
+    enrollmentId: string
+    courseId: string
+    contactId: string | null
+    courseTitle: string | null
+    paid: boolean
+  },
+): Promise<void> {
+  try {
+    const { dispatchCourseEnrolled } = await import('@/modules/sequences/lib/automation-dispatch')
+    await dispatchCourseEnrolled(knex, input)
+  } catch (err) {
+    console.error('[stripe.webhook] course_enrolled automations failed (non-fatal):', err)
+  }
+}
+
 export async function POST(req: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -493,6 +516,16 @@ export async function POST(req: Request) {
               console.warn('[stripe.webhook] course enrollment email not sent:', emailResult.reason, emailResult.error || '')
             }
 
+            await dispatchCourseEnrolledSafely(knex, {
+              organizationId: courseOrgId,
+              tenantId: courseTenantId,
+              enrollmentId,
+              courseId,
+              contactId,
+              courseTitle: paidCourse.title ?? null,
+              paid: true,
+            })
+
             console.log(`[stripe.webhook] Course enrollment: ${studentName} enrolled in course ${courseId} via payment`)
           }
         } catch (courseErr) {
@@ -696,22 +729,38 @@ export async function POST(req: Request) {
                   if (prod?.course_ids) {
                     const courseIds = typeof prod.course_ids === 'string' ? JSON.parse(prod.course_ids) : (prod.course_ids || [])
                     for (const cid of courseIds) {
-                      const course = await knex('courses').where('id', cid).where('is_published', true).whereNull('deleted_at').first()
+                      const funnelOrgId = String(meta.orgId || orgId)
+                      const course = await knex('courses').where('id', cid).where('organization_id', funnelOrgId).where('is_published', true).whereNull('deleted_at').first()
                       if (!course) continue
-                      const existingEnroll = await knex('course_enrollments').where('course_id', cid).where('student_email', funnelContactEmail.toLowerCase()).where('status', 'active').first()
+                      const funnelTenantId = String(meta.tenantId || tenantId || course.tenant_id)
+                      const existingEnroll = await knex('course_enrollments')
+                        .where('tenant_id', funnelTenantId).where('organization_id', funnelOrgId)
+                        .where('course_id', cid).where('student_email', funnelContactEmail.toLowerCase()).where('status', 'active').first()
                       if (existingEnroll) continue
-                      await knex('course_enrollments').insert({
-                        id: require('crypto').randomUUID(),
-                        tenant_id: meta.tenantId || tenantId || course.tenant_id,
-                        organization_id: meta.orgId || orgId,
+                      // No created_at: course_enrollments has no such column, and
+                      // writing one made every funnel enrollment fail silently.
+                      const funnelEnrollmentId = require('crypto').randomUUID()
+                      const enrolled = await knex('course_enrollments').insert({
+                        id: funnelEnrollmentId,
+                        tenant_id: funnelTenantId,
+                        organization_id: funnelOrgId,
                         course_id: cid,
                         student_name: meta.customerName || funnelContactEmail.split('@')[0],
                         student_email: funnelContactEmail.toLowerCase(),
                         contact_id: contactId || null,
                         status: 'active',
                         enrolled_at: new Date(),
-                        created_at: new Date(),
-                      }).catch(() => {})
+                      }).then(() => true).catch((e: unknown) => { console.error('[stripe.webhook] funnel course enrollment failed:', e); return false })
+                      if (!enrolled) continue
+                      await dispatchCourseEnrolledSafely(knex, {
+                        organizationId: funnelOrgId,
+                        tenantId: funnelTenantId,
+                        enrollmentId: funnelEnrollmentId,
+                        courseId: cid,
+                        contactId: contactId || null,
+                        courseTitle: course.title ?? null,
+                        paid: true,
+                      })
                     }
                   }
                 }
@@ -764,6 +813,15 @@ export async function POST(req: Request) {
               if (!bundleEmail.sent && bundleEmail.reason !== 'already_sent') {
                 console.warn('[stripe.webhook] product course enrollment email not sent:', bundleEmail.reason, bundleEmail.error || '')
               }
+              await dispatchCourseEnrolledSafely(knex, {
+                organizationId: orgId,
+                tenantId: bundleTenantId,
+                enrollmentId: bundleEnrollmentId,
+                courseId: cid,
+                contactId: resolvedContactId,
+                courseTitle: course.title ?? null,
+                paid: true,
+              })
               console.log(`[stripe.webhook] Auto-enrolled ${customerEmail} in course ${course.title} via product purchase`)
             }
           }

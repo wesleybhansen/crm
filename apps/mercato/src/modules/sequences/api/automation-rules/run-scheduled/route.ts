@@ -10,6 +10,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
 import { processScheduledSteps } from '@/modules/sequences/lib/automation-execute'
+import { dispatchOverdueInvoices, overdueRuleScopes, type OverdueScanResult } from '@/modules/sequences/lib/invoice-overdue'
+import { sendAutomationWebhook } from '@/modules/sequences/lib/automation-webhook'
 import {
   decryptRowFields,
   decryptAliasedRowFields,
@@ -240,17 +242,13 @@ async function executeScheduledAction(
     }
 
     case 'webhook': {
-      if (!actionConfig.url) return { success: false, detail: 'Webhook URL required' }
-      try {
-        const res = await fetch(actionConfig.url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(actionConfig.headers || {}) },
-          body: JSON.stringify({ event: 'scheduled_automation', timestamp: new Date().toISOString(), data: context }),
-        })
-        return { success: res.ok, detail: `Webhook ${res.ok ? 'delivered' : 'failed'}: ${res.status}` }
-      } catch (err) {
-        return { success: false, detail: `Webhook error: ${err instanceof Error ? err.message : 'Unknown'}` }
-      }
+      // Signed like every automation webhook (lib/automation-webhook.ts).
+      return sendAutomationWebhook(knex, { organizationId: orgId, tenantId }, {
+        url: actionConfig.url,
+        headers: actionConfig.headers,
+        event: 'scheduled_automation',
+        data: context,
+      })
     }
 
     default:
@@ -451,17 +449,25 @@ export async function POST(req: Request) {
       // A signed-in user runs their own organization only (Automations page
       // on load, and Run Now for one rule).
       const forceRuleId = typeof body.ruleId === 'string' ? body.ruleId : null
-      const data = await runScheduledRulesForOrg(knex, { organizationId: auth!.orgId!, tenantId: auth!.tenantId! }, { forceRuleId })
-      // The page load also resumes this organization's due Wait steps, a
-      // fallback for when the box cron is late or missing (the claim on each
-      // parked row keeps the two from running a step twice).
+      const own = { organizationId: auth!.orgId!, tenantId: auth!.tenantId! }
+      const data = await runScheduledRulesForOrg(knex, own, { forceRuleId })
+      // The page load also resumes this organization's due Wait steps and
+      // dispatches its newly overdue invoices, a fallback for when the box
+      // cron is late or missing (the claim on each parked row, and the
+      // once-per-invoice ledger, keep the two from running anything twice).
       if (!forceRuleId) {
+        const extra: { delayedSteps?: unknown; invoiceOverdue?: OverdueScanResult } = {}
         try {
-          const delayedSteps = await processScheduledSteps(knex, { organizationId: auth!.orgId!, tenantId: auth!.tenantId! })
-          return NextResponse.json({ ok: true, data: { ...data, delayedSteps } })
+          extra.delayedSteps = await processScheduledSteps(knex, own)
         } catch (err) {
           console.error('[run-scheduled] delayed steps failed', err)
         }
+        try {
+          extra.invoiceOverdue = await dispatchOverdueInvoices(knex, own)
+        } catch (err) {
+          console.error('[run-scheduled] overdue invoices failed', err)
+        }
+        return NextResponse.json({ ok: true, data: { ...data, ...extra } })
       }
       return NextResponse.json({ ok: true, data })
     }
@@ -503,6 +509,23 @@ export async function POST(req: Request) {
       }
     }
 
+    // "Invoice Overdue" rules: every organization with an active one, each in
+    // its own tenant scope, dispatches the invoices that just went overdue
+    // (once per invoice and threshold; dryRun counts without dispatching).
+    const invoiceOverdue: Array<{ organizationId: string } & (OverdueScanResult | { error: string })> = []
+    try {
+      for (const overdueScope of await overdueRuleScopes(knex, onlyOrg)) {
+        try {
+          invoiceOverdue.push({ organizationId: overdueScope.organizationId, ...(await dispatchOverdueInvoices(knex, overdueScope, { dryRun })) })
+        } catch (err) {
+          console.error('[run-scheduled] overdue invoices failed', { organizationId: overdueScope.organizationId, err })
+          invoiceOverdue.push({ organizationId: overdueScope.organizationId, error: err instanceof Error ? err.message : 'Failed' })
+        }
+      }
+    } catch (err) {
+      console.error('[run-scheduled] overdue invoice scopes failed', err)
+    }
+
     const ran = organizations.flatMap((o) => o.results).filter((r) => !r.skipped)
     console.log('[run-scheduled] service run', {
       dryRun,
@@ -510,8 +533,9 @@ export async function POST(req: Request) {
       rulesRun: ran.length,
       targets: ran.reduce((n, r) => n + r.targetsFound, 0),
       delayedSteps,
+      invoiceOverdue: invoiceOverdue.reduce((n, o) => n + ('dispatched' in o ? o.dispatched : 0), 0),
     })
-    return NextResponse.json({ ok: true, data: { dryRun, organizations, delayedSteps } })
+    return NextResponse.json({ ok: true, data: { dryRun, organizations, delayedSteps, invoiceOverdue } })
   } catch (error) {
     console.error('[run-scheduled] POST error', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })

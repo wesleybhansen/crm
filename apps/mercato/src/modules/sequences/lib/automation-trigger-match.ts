@@ -76,8 +76,25 @@ function sameId(wanted: unknown, actual: unknown): boolean {
   return !w || w === text(actual)
 }
 
+/**
+ * How many days past its due date an "Invoice Overdue" rule waits: the rule's
+ * "Days overdue", at least 1. Empty means as soon as the invoice is overdue
+ * (the day after its due date).
+ */
+export function overdueThresholdDays(config: Config): number {
+  const n = Number(config?.daysOverdue)
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1
+}
+
 /** Does an automation rule's trigger_config accept this event? */
 export function matchesTriggerConfig(triggerType: string, triggerConfig: Config, context: Context): boolean {
+  // Before the empty-config shortcut: the overdue scan dispatches once per
+  // invoice per day threshold, and a rule answers only its own threshold (an
+  // empty config means 1 day), so a rule never runs twice for one invoice.
+  if (triggerType === 'invoice_overdue') {
+    if (context.overdueThresholdDays == null) return true
+    return overdueThresholdDays(triggerConfig) === Number(context.overdueThresholdDays)
+  }
   if (!triggerConfig || Object.keys(triggerConfig).length === 0) return true
 
   switch (triggerType) {
@@ -92,7 +109,11 @@ export function matchesTriggerConfig(triggerType: string, triggerConfig: Config,
 
     case 'deal_won':
     case 'deal_lost':
+    case 'deal_created':
       return sameId(triggerConfig.pipelineId, context.pipelineId)
+
+    case 'course_enrolled':
+      return sameId(triggerConfig.courseId, context.courseId)
 
     case 'contact_created':
     case 'contact_updated':
@@ -126,6 +147,8 @@ export function matchesSequenceTrigger(triggerType: string, config: Config, cont
       return sameId(config.bookingPageId, context.bookingPageId)
     case 'contact_created':
       return sourceMatches(config.source, context.source)
+    case 'course_enrolled':
+      return sameId(config.courseId, context.courseId)
     default:
       return true
   }

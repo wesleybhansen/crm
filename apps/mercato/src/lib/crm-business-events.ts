@@ -4,6 +4,7 @@
  * for a closed deal, the marketing app handoff (integrations_api outbox).
  *
  *   deal closed (won)  customers.deal.closed        core customers/lib/dealClosed.ts
+ *   deal lost          customers.deal.lost          core customers/lib/dealClosed.ts
  *   deal stage change  customers.deal.stage_changed the deal command, board and automations
  *   invoice paid       payments.invoice.paid        emitInvoicePaid (below)
  *   booking created    calendar.booking.created     emitBookingCreated (below)
@@ -11,7 +12,12 @@
  * Emitting never throws: a listener's failure must not fail the write that
  * caused the event. Pure; safe for worker bundles.
  */
-export { emitDealClosedIfTransitioned, DEAL_CLOSED_EVENT_ID } from '@open-mercato/core/modules/customers/lib/dealClosed'
+export {
+  emitDealClosedIfTransitioned,
+  emitDealLostIfTransitioned,
+  DEAL_CLOSED_EVENT_ID,
+  DEAL_LOST_EVENT_ID,
+} from '@open-mercato/core/modules/customers/lib/dealClosed'
 
 export const INVOICE_PAID_EVENT_ID = 'payments.invoice.paid' as const
 export const BOOKING_CREATED_EVENT_ID = 'calendar.booking.created' as const

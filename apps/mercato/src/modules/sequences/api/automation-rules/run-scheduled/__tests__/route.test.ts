@@ -168,6 +168,39 @@ describe('run-scheduled route', () => {
     spy.mockRestore()
   })
 
+  it('dispatches newly overdue invoices: the cron for every tenant (each scoped), the page load for its own org', async () => {
+    const knex = world()
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    knex.db.tables.automation_rules.push(
+      rule('r-overdue-a', 'org-a', 'tenant-a', { trigger_type: 'invoice_overdue', trigger_config: '{}', action_config: JSON.stringify({ taskTitle: 'Chase {{reference}}' }) }),
+      rule('r-overdue-b', 'org-b', 'tenant-b', { trigger_type: 'invoice_overdue', trigger_config: '{}', action_config: JSON.stringify({ taskTitle: 'Chase {{reference}}' }) }),
+    )
+    knex.db.tables.invoices = [
+      { id: 'inv-a', organization_id: 'org-a', tenant_id: 'tenant-a', contact_id: null, invoice_number: 'A-1', total: '10', status: 'sent', due_date: twoDaysAgo, deleted_at: null },
+      { id: 'inv-b', organization_id: 'org-b', tenant_id: 'tenant-b', contact_id: null, invoice_number: 'B-1', total: '10', status: 'sent', due_date: twoDaysAgo, deleted_at: null },
+    ]
+    knex.db.uniques.automation_trigger_dispatches = [['organization_id', 'trigger_type', 'event_key']]
+    const overdueTasks = () => knex.db.tables.tasks.filter((t: Record<string, unknown>) => String(t.title).startsWith('Chase'))
+      .map((t: Record<string, unknown>) => t.organization_id)
+
+    mockSession.current = { orgId: 'org-a', tenantId: 'tenant-a' }
+    const page = await (await call({})).json()
+    expect(page.data.invoiceOverdue).toMatchObject({ dispatched: 1 })
+    expect(overdueTasks()).toEqual(['org-a'])
+
+    mockSession.current = null
+    const dry = await (await call({ dryRun: true }, SECRET)).json()
+    expect(dry.data.invoiceOverdue).toEqual(expect.arrayContaining([expect.objectContaining({ organizationId: 'org-b', candidates: 1, dispatched: 0 })]))
+    expect(overdueTasks()).toEqual(['org-a'])
+
+    const cron = await (await call({}, SECRET)).json()
+    expect(cron.data.invoiceOverdue.map((o: { organizationId: string; dispatched: number }) => [o.organizationId, o.dispatched]).sort())
+      .toEqual([['org-a', 0], ['org-b', 1]])
+    expect(overdueTasks().sort()).toEqual(['org-a', 'org-b'])
+    await call({}, SECRET)
+    expect(overdueTasks()).toHaveLength(2)
+  })
+
   it('maps each scheduled target to its real records', () => {
     expect(scheduleTargetIds('inactive_contacts', { id: 'c-1' })).toEqual({ contactId: 'c-1' })
     expect(scheduleTargetIds('invoice_overdue', { id: 'inv-1', contact_id: 'c-2' })).toEqual({ contactId: 'c-2', invoiceId: 'inv-1' })
