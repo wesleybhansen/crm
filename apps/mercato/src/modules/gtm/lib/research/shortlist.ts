@@ -61,6 +61,15 @@ export type ShortlistEntry = {
   /** Checked on the prospect's own website against the member's criteria
    *  (verify.ts). Only verified rows carry an earned score and confidence. */
   verified: boolean
+  /** Real signals behind this prospect's place among equals, in plain words
+   *  (for example "Owner named on their website"). */
+  rank_reasons: string[]
+  /** Why it sits above the next prospect with the same score, when a signal
+   *  separates them; null when the score alone does, or nothing does. */
+  rank_note: string | null
+  /** True only when a neighbour has exactly the same score and signals, so the
+   *  remaining order is alphabetical. */
+  tied: boolean
   checks: Array<{ text: string; status: 'pass' | 'fail' | 'unknown'; quote: string | null }>
   phone_source: 'site_and_listing' | 'site' | 'listing_only' | 'listing' | null
 }
@@ -252,7 +261,7 @@ export async function buildShortlist(
     evidenceByCandidate.set(row.candidateId, list)
   }
 
-  type Scored = { entry: Omit<ShortlistEntry, 'rank'>; key: string; ruleFit: number; tiebreak: number; rawScore: number }
+  type Scored = { entry: Omit<ShortlistEntry, 'rank'>; key: string; ruleFit: number; signals: TieSignals; rawScore: number; lat: number | null; lng: number | null }
   const scored: Scored[] = []
   for (const match of live) {
     const candidate = candidateById.get(match.candidateId)
@@ -302,9 +311,23 @@ export async function buildShortlist(
     // the rule/lead-check score for ORDER only and never an earned label.
     const finalScore = verification ? Math.round(Math.max(0, Math.min(100, Number(verification.grade ?? 0)))) : score
     const hardPasses = checks.filter((c) => c.status === 'pass').length
+    const phoneSource = verification?.contact?.phone_source ?? null
     scored.push({
       rawScore: score,
-      tiebreak: hardPasses * 4 + (verifiedContact.person_name ? 2 : 0) + (verification?.contact?.phone_source === 'site_and_listing' ? 1 : 0),
+      lat: typeof identity.latitude === 'number' ? identity.latitude : null,
+      lng: typeof identity.longitude === 'number' ? identity.longitude : null,
+      signals: {
+        hardPasses,
+        independentStated: verification?.ownership?.status === 'independent' && Boolean(verification.ownership.evidence),
+        namedPerson: Boolean(verifiedContact.person_name),
+        personName: verifiedContact.person_name ?? null,
+        phone: phoneSource === 'site_and_listing' ? 2 : phoneSource === 'site' ? 1 : 0,
+        rating: typeof identity.rating === 'number' ? identity.rating : null,
+        reviews: typeof identity.review_count === 'number' ? identity.review_count : null,
+        distanceKm: null,
+        accepted: fitStatus === 'accepted',
+        sitePages: Array.isArray(verification?.site?.pages) ? verification!.site!.pages!.length : 0,
+      },
       ruleFit: Number(match.fitScore ?? 0) || 0,
       key: shortlistDedupeKey(identity),
       entry: {
@@ -322,6 +345,9 @@ export async function buildShortlist(
         contact: verifiedContact,
         location: str(identity.location) ?? ([str(identity.city), str(identity.region)].filter(Boolean).join(', ') || null),
         verified: Boolean(verification),
+        rank_reasons: [],
+        rank_note: null,
+        tied: false,
         checks,
         phone_source: verification
           ? ((verification.contact?.phone_source as ShortlistEntry['phone_source']) ?? null)
@@ -335,10 +361,21 @@ export async function buildShortlist(
   // person, a phone the site confirms), then acceptance, then the rules' own
   // fit score, and only then by name: a name-only tie-break delivered an
   // alphabetical "ranked" list on a live run of equal scores.
+  // Distance from the middle of the pool: the Maps searches centre on the
+  // member's area, so the median of the listings' coordinates is a free,
+  // honest stand-in for "close to where you sell". Rows without coordinates
+  // simply do not get this signal.
+  const lats = scored.map((r) => r.lat).filter((v): v is number => v != null).sort((a, b) => a - b)
+  const lngs = scored.map((r) => r.lng).filter((v): v is number => v != null).sort((a, b) => a - b)
+  if (lats.length >= 3 && lngs.length >= 3) {
+    const mid = { lat: lats[Math.floor(lats.length / 2)], lng: lngs[Math.floor(lngs.length / 2)] }
+    for (const row of scored) {
+      if (row.lat != null && row.lng != null) row.signals.distanceKm = haversineKm(mid, { lat: row.lat, lng: row.lng })
+    }
+  }
   scored.sort((a, b) => Number(b.entry.verified) - Number(a.entry.verified)
     || b.entry.score - a.entry.score
-    || b.tiebreak - a.tiebreak
-    || (a.entry.fit_status === b.entry.fit_status ? 0 : a.entry.fit_status === 'accepted' ? -1 : 1)
+    || compareSignals(a.signals, b.signals)
     || b.ruleFit - a.ruleFit
     || a.entry.name.localeCompare(b.entry.name))
   const seen = new Set<string>()
@@ -357,9 +394,21 @@ export async function buildShortlist(
       return Boolean(c.website || c.phone || c.profile_url || c.has_email)
     }).length,
   }
+  const top = unique.slice(0, limit)
+  top.forEach((row, index) => {
+    row.entry.rank_reasons = reasonsFor(row.signals)
+    const next = top[index + 1]
+    const prev = top[index - 1]
+    const sameAs = (other?: Scored) => Boolean(other) && other!.entry.verified === row.entry.verified && other!.entry.score === row.entry.score
+      && compareSignals(row.signals, other!.signals) === 0 && other!.ruleFit === row.ruleFit
+    row.entry.tied = sameAs(next) || sameAs(prev)
+    row.entry.rank_note = next && next.entry.score === row.entry.score && next.entry.verified === row.entry.verified
+      ? firstDifference(row.signals, next.signals)
+      : null
+  })
   return {
     pool,
-    shortlist: unique.slice(0, limit).map((row, index) => ({ rank: index + 1, ...row.entry })),
+    shortlist: top.map((row, index) => ({ rank: index + 1, ...row.entry })),
     scan_capped: matches.length >= SHORTLIST_MATCH_SCAN_LIMIT,
     unverified: unverifiedToCheck(unique.map((row) => ({ matchId: row.entry.match_id, verified: row.entry.verified, rawScore: row.rawScore }))).length,
   }
@@ -395,4 +444,87 @@ export async function nextToVerify(
     verified: Boolean(storedVerification(m.qualification)),
     rawScore: Number(m.fitScore ?? 0) + (m.fitStatus === 'accepted' ? 10 : 0),
   }))).slice(0, Math.max(0, args.limit))
+}
+
+/* ── Tie-breaking on real signals (2026-09-25) ──────────────────────────
+ * The live Denver dental run delivered nine prospects at the same grade in
+ * A-to-Z order. Among equal scores the order now follows signals the system
+ * already holds, with no new paid call: what the site confirmed, a stated
+ * independent owner, a named owner or lead, a phone the site confirms, the
+ * public Google rating and review count (Maps rows), closeness to the middle
+ * of the member's area, then acceptance, then how much of the site was read.
+ * Each delivered prospect carries the reasons in plain words, and a tie is
+ * reported only when every one of these is equal.
+ */
+export type TieSignals = {
+  hardPasses: number
+  independentStated: boolean
+  namedPerson: boolean
+  personName: string | null
+  /** 2 = on the site and the listing, 1 = on the site, 0 = listing only / none. */
+  phone: number
+  rating: number | null
+  reviews: number | null
+  distanceKm: number | null
+  accepted: boolean
+  sitePages: number
+}
+
+/** A rating counts as much as the reviews behind it: 4.9 from 8 reviews is
+ *  weaker evidence than 4.7 from 400. Bucketed so noise does not reorder. */
+export function reputationScore(rating: number | null, reviews: number | null): number {
+  if (rating == null || reviews == null || reviews <= 0) return 0
+  return Math.round(rating * Math.log10(reviews + 1) * 2) / 2
+}
+
+/** Distance in 5 km bands (closer first); unknown distance sorts last. */
+function distanceBand(km: number | null): number {
+  return km == null ? Number.POSITIVE_INFINITY : Math.floor(km / 5)
+}
+
+type Key = { value: (s: TieSignals) => number; reason: (s: TieSignals) => string | null }
+const KEYS: Key[] = [
+  { value: (s) => s.hardPasses, reason: (s) => (s.hardPasses > 0 ? `Confirmed ${s.hardPasses} of your requirements on their website` : null) },
+  { value: (s) => Number(s.independentStated), reason: (s) => (s.independentStated ? 'Independent ownership stated on their website' : null) },
+  { value: (s) => Number(s.namedPerson), reason: (s) => (s.namedPerson ? `Owner or lead named on their website${s.personName ? ` (${s.personName})` : ''}` : null) },
+  { value: (s) => s.phone, reason: (s) => (s.phone === 2 ? 'Phone number confirmed on their website' : s.phone === 1 ? 'Phone number taken from their website' : null) },
+  { value: (s) => reputationScore(s.rating, s.reviews), reason: (s) => (reputationScore(s.rating, s.reviews) > 0 ? `${s.rating} stars from ${s.reviews} Google reviews` : null) },
+  { value: (s) => -distanceBand(s.distanceKm), reason: (s) => (s.distanceKm != null && s.distanceKm <= 10 ? 'Close to the middle of your area' : null) },
+  { value: (s) => Number(s.accepted), reason: (s) => (s.accepted ? 'Met every rule of the original search' : null) },
+  { value: (s) => s.sitePages, reason: (s) => (s.sitePages >= 2 ? 'About or team pages read, not just the home page' : null) },
+]
+
+/** Negative when `a` ranks above `b`. Pure. */
+export function compareSignals(a: TieSignals, b: TieSignals): number {
+  for (const key of KEYS) {
+    const d = key.value(b) - key.value(a)
+    if (d !== 0 && Number.isFinite(d)) return d
+    if (!Number.isFinite(d) && key.value(a) !== key.value(b)) return key.value(a) > key.value(b) ? -1 : 1
+  }
+  return 0
+}
+
+export function reasonsFor(s: TieSignals): string[] {
+  return KEYS.map((key) => key.reason(s)).filter((r): r is string => Boolean(r)).slice(0, 6)
+}
+
+/** The first signal that puts `a` above `b`, in plain words, or null. */
+export function firstDifference(a: TieSignals, b: TieSignals): string | null {
+  for (const key of KEYS) {
+    const va = key.value(a)
+    const vb = key.value(b)
+    if (va === vb) continue
+    if (va < vb) return null
+    const r = key.reason(a)
+    return r ? `Ranked above the next prospect because: ${r.charAt(0).toLowerCase()}${r.slice(1)}` : null
+  }
+  return null
+}
+
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (d: number) => (d * Math.PI) / 180
+  const dLat = rad(b.lat - a.lat)
+  const dLng = rad(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)))
 }

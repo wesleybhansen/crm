@@ -1,5 +1,5 @@
 import { GtmCandidate, GtmCandidateMatch, GtmContactPoint, GtmEvidence, GtmPlay } from '../../data/entities'
-import { buildShortlist, rankScore, shortlistDedupeKey } from '../research/shortlist'
+import { buildShortlist, rankScore, reputationScore, shortlistDedupeKey } from '../research/shortlist'
 import { FakeEm } from './support/fake-em'
 import { ORG, TENANT, seedPlay, seedRun } from './support/campaign-fixtures'
 
@@ -187,5 +187,84 @@ describe('buildShortlist', () => {
     expect(foreign.shortlist).toEqual([])
     const none = await buildShortlist(em, { organizationId: ORG, tenantId: TENANT }, { runIds: [] })
     expect(none.pool.viable).toBe(0)
+  })
+})
+
+describe('ties between equally checked prospects break on real signals (Denver dental pool, 9 at 95)', () => {
+  const checks = [
+    { text: 'Independently owned', hard: true, status: 'pass', quote: 'Owned by the doctor since 2011' },
+    { text: '1 to 3 dentists', hard: true, status: 'pass', quote: 'Our two dentists' },
+    { text: 'General dentistry', hard: true, status: 'pass', quote: 'Family and general dentistry' },
+    { text: 'Uses Dentrix or Eaglesoft', hard: false, status: 'unknown', quote: null },
+  ]
+  // The nine rows exactly as the live run (session 96327835) stored them:
+  // phone source, page count, accepted/review; no rating was captured then.
+  const live: Array<[string, string, number, 'accepted' | 'review']> = [
+    ['Brilliant Family Dentistry', 'site_and_listing', 1, 'review'],
+    ['Cherry Creek North Family Dentistry', 'site_and_listing', 3, 'review'],
+    ['DeWitt Dental Associates', 'site_and_listing', 3, 'review'],
+    ['Downing Street Dental', 'site_and_listing', 2, 'review'],
+    ['EC Family & Cosmetic Dentistry', 'site_and_listing', 3, 'review'],
+    ['Lodo Dental', 'site_and_listing', 3, 'review'],
+    ['Mollner Dentistry', 'site_and_listing', 3, 'review'],
+    ['Washington Park Family Dental', 'site_and_listing', 3, 'review'],
+    ['Seto Family Dentistry', 'site', 3, 'accepted'],
+  ]
+  const verification = (phoneSource: string, pages: number) => ({
+    version: 'site-check-v1', complete: true, excluded: false, grade: 95, summary: 'Independent general practice',
+    checks, ownership: { status: 'independent', evidence: 'Owned by the doctor since 2011' },
+    site: { pages: Array.from({ length: pages }, (_, i) => `https://x.example/${i}`) },
+    contact: { phone: '+13035550100', phone_source: phoneSource, person_name: 'Dr. Owner', person_title: 'Owner' },
+  })
+
+  test('as stored today: signals order most of them, and only a genuine tie is flagged', async () => {
+    const em = new FakeEm()
+    const { runs } = await seed(em, live.map(([name, phone, pages, status]) => ({ name, status, score: 90, verification: verification(phone, pages) })))
+    const result = await buildShortlist(em, { organizationId: ORG, tenantId: TENANT }, { runIds: [runs[0].id] })
+    const order = result.shortlist.map((r) => r.name)
+    // Six that match on every signal stay A to Z, and say so.
+    expect(order.slice(0, 6)).toEqual(['Cherry Creek North Family Dentistry', 'DeWitt Dental Associates', 'EC Family & Cosmetic Dentistry', 'Lodo Dental', 'Mollner Dentistry', 'Washington Park Family Dental'])
+    expect(result.shortlist.slice(0, 6).every((r) => r.tied)).toBe(true)
+    // Fewer pages read, then a phone only from the site rather than confirmed on both.
+    expect(order.slice(6)).toEqual(['Downing Street Dental', 'Brilliant Family Dentistry', 'Seto Family Dentistry'])
+    expect(result.shortlist.slice(6).every((r) => !r.tied)).toBe(true)
+    expect(result.shortlist[5].rank_note).toMatch(/about or team pages read/)
+    expect(result.shortlist[7].rank_note).toMatch(/phone number confirmed on their website/)
+    expect(result.shortlist[0].rank_reasons).toEqual(expect.arrayContaining(['Independent ownership stated on their website', 'Phone number confirmed on their website']))
+  })
+
+  test('with the Google rating captured (every Maps row from now on) and coordinates, nothing is left to the alphabet', async () => {
+    const em = new FakeEm()
+    const ratings: Record<string, [number, number, number, number]> = {
+      'Cherry Creek North Family Dentistry': [4.9, 412, 39.719, -104.955],
+      'DeWitt Dental Associates': [4.8, 96, 39.717, -104.953],
+      'EC Family & Cosmetic Dentistry': [5.0, 9, 39.74, -104.99],
+      'Lodo Dental': [4.9, 220, 39.753, -105.0],
+      'Mollner Dentistry': [4.7, 180, 39.75, -104.93],
+      'Washington Park Family Dental': [4.9, 220, 39.64, -104.97],
+    }
+    const { runs } = await seed(em, live.slice(0, 8).filter(([n]) => ratings[n]).map(([name, phone, pages, status]) => ({
+      name, status, score: 90, verification: verification(phone, pages),
+      identity: { rating: ratings[name][0], review_count: ratings[name][1], latitude: ratings[name][2], longitude: ratings[name][3] },
+    })))
+    const result = await buildShortlist(em, { organizationId: ORG, tenantId: TENANT }, { runIds: [runs[0].id] })
+    expect(result.shortlist.map((r) => r.name)).toEqual([
+      'Cherry Creek North Family Dentistry', // 4.9 from 412
+      'Lodo Dental', // 4.9 from 220, closer to the middle than Washington Park
+      'Washington Park Family Dental',
+      'Mollner Dentistry', // 4.7 from 180
+      'DeWitt Dental Associates', // 4.8 from 96
+      'EC Family & Cosmetic Dentistry', // 5.0 from only 9 reviews
+    ])
+    expect(result.shortlist.some((r) => r.tied)).toBe(false)
+    expect(result.shortlist[0].rank_note).toMatch(/4\.9 stars from 412 Google reviews/)
+    expect(result.shortlist[1].rank_note).toMatch(/close to the middle of your area/)
+    expect(result.shortlist[0].rank_reasons).toContain('4.9 stars from 412 Google reviews')
+  })
+
+  test('reputation weighs the rating by the reviews behind it', () => {
+    expect(reputationScore(5.0, 9)).toBeLessThan(reputationScore(4.7, 180))
+    expect(reputationScore(null, 100)).toBe(0)
+    expect(reputationScore(4.9, 0)).toBe(0)
   })
 })

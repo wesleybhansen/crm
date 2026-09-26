@@ -685,8 +685,14 @@ export function createDataForSeoMapsAdapter(deps: {
               city: stringValue(addressInfo.city),
               region: stringValue(addressInfo.region),
               country_code: stringValue(addressInfo.country_code),
-              latitude: finiteNumber(coordinates.latitude),
-              longitude: finiteNumber(coordinates.longitude),
+              // DataForSEO puts coordinates on the item itself; the older
+              // gps_coordinates object is kept as a fallback.
+              latitude: finiteNumber(item.latitude) ?? finiteNumber(coordinates.latitude),
+              longitude: finiteNumber(item.longitude) ?? finiteNumber(coordinates.longitude),
+              // The listing's public Google rating, used only to break ties
+              // between prospects that confirmed the same things (shortlist).
+              rating: listingRating(item.rating).value,
+              review_count: listingRating(item.rating).votes,
             },
             evidence: [{
               // Provider-only claim (review 2026-09-02, H9): the customer's
@@ -727,5 +733,16 @@ export function createDataForSeoMapsAdapter(deps: {
             : 'provider_transport_unknown: DataForSEO outcome is unknown',
         }
       }
+  }
+}
+
+/** A Maps listing's public rating: value 1-5 and review count, or nulls. Pure. */
+export function listingRating(value: unknown): { value: number | null; votes: number | null } {
+  const r = objectValue(value)
+  const v = finiteNumber(r.value)
+  const n = finiteNumber(r.votes_count)
+  return {
+    value: v != null && v >= 1 && v <= 5 ? Math.round(v * 10) / 10 : null,
+    votes: n != null && n >= 0 ? Math.floor(n) : null,
   }
 }

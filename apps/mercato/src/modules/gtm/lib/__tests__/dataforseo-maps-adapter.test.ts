@@ -10,6 +10,7 @@ import {
   listingDomain,
   listingPhone,
   listingWebsite,
+  listingRating,
   mapsStartingMetros,
   MAPS_NATIONAL_STARTING_METROS,
 } from '../adapters/dataforseo/maps'
@@ -525,5 +526,13 @@ describe('national- and state-scope Maps plays search starting metros (noli-plat
     const adapter = createDataForSeoMapsAdapter({ env: approvedEnv })
     const frozen = { ...plan(['Nationwide US']), provider_query: { ...plan(['Nationwide US']).provider_query, search_metros: ['Phoenix,Arizona,United States', 'Houston,Texas,United States'] } }
     expect(adapter.quote(frozen).provider_units).toBe(2)
+  })
+})
+
+describe('the listing rating is kept for tie-breaking', () => {
+  it('keeps a 1-5 rating and a whole review count, and nothing else', () => {
+    expect(listingRating({ rating_type: 'Max5', value: 4.86, votes_count: 212 })).toEqual({ value: 4.9, votes: 212 })
+    expect(listingRating({ value: 7, votes_count: -3 })).toEqual({ value: null, votes: null })
+    expect(listingRating(null)).toEqual({ value: null, votes: null })
   })
 })
