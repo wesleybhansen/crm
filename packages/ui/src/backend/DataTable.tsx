@@ -181,6 +181,12 @@ export type DataTableProps<T> = {
   exporter?: DataTableExportConfig | false
   perspective?: DataTablePerspectiveConfig
   embedded?: boolean
+  /**
+   * A narrow table (two or three short columns) fits the card on a phone
+   * instead of keeping the 640px minimum that makes wide tables scroll
+   * sideways. Off by default.
+   */
+  fitOnMobile?: boolean
   onCustomFieldFilterFieldsetChange?: (fieldset: string | null, entityId?: string) => void
   customFieldFilterKeyExtras?: Array<string | number | boolean | null | undefined>
   injectionSpotId?: string
@@ -652,6 +658,7 @@ export function DataTable<T>({
   exporter,
   perspective,
   embedded = false,
+  fitOnMobile = false,
   onCustomFieldFilterFieldsetChange,
   customFieldFilterKeyExtras,
   injectionSpotId,
@@ -1890,7 +1897,7 @@ export function DataTable<T>({
         </div>
       )}
       <div className={tableScrollWrapperClassName}>
-        <Table className="min-w-[640px] md:min-w-0">
+        <Table className={fitOnMobile ? undefined : 'min-w-[640px] md:min-w-0'}>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>

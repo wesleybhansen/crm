@@ -306,7 +306,11 @@ export default function EventsPage() {
       })
       const d = await res.json()
       if (d.ok) {
-        showToast(`Email sent to ${d.data?.sent || 0} attendees`)
+        const sent = Number(d.data?.sent) || 0
+        const skipped = Number(d.data?.skippedUnsubscribed) || 0
+        showToast(`Email sent to ${sent} ${sent === 1 ? 'attendee' : 'attendees'}.` + (skipped
+          ? ` ${skipped} ${skipped === 1 ? 'person was' : 'people were'} skipped because they unsubscribed.`
+          : ''))
         setShowEmailModal(false); setEmailSubject(''); setEmailMessage('')
       } else showToast(d.error || 'Failed to send')
     } catch { showToast('Failed to send emails') }

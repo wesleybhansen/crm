@@ -9,6 +9,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { UNSUBSCRIBED_CODE } from '@/modules/email/lib/unsubscribes'
 import { processScheduledSteps } from '@/modules/sequences/lib/automation-execute'
 import { dispatchOverdueInvoices, overdueRuleScopes, type OverdueScanResult } from '@/modules/sequences/lib/invoice-overdue'
 import { sendAutomationWebhook } from '@/modules/sequences/lib/automation-webhook'
@@ -142,11 +143,11 @@ async function executeScheduledAction(
   actionType: string,
   actionConfig: Record<string, any>,
   context: Record<string, any>,
-): Promise<{ success: boolean; detail?: string }> {
+): Promise<{ success: boolean; skipped?: boolean; detail?: string }> {
   switch (actionType) {
     case 'send_email': {
       if (!context.contactId) return { success: false, detail: 'No contactId in context' }
-      const contact = await knex('customer_entities').where('id', context.contactId).where('organization_id', orgId).first()
+      const contact = await knex('customer_entities').where('id', context.contactId).where('organization_id', orgId).where('tenant_id', tenantId).first()
       // Raw knex skips the decrypting subscriber, so this scheduled automation
       // addressed its email to ciphertext and greeted the person by it.
       if (contact) {
@@ -194,6 +195,8 @@ async function executeScheduledAction(
         await logReviewSend()
         return { success: true, detail: `Email sent via ${sendRes.sentVia}` }
       }
+      // The router's unsubscribe gate refused it: a skip with the plain reason.
+      if (sendRes.code === UNSUBSCRIBED_CODE) return { success: false, skipped: true, detail: sendRes.error }
 
       // Not sent. This used to write a 'queued' row nothing ever sends and
       // report success; record the real failure instead (the caller logs it to
@@ -379,7 +382,7 @@ export async function runScheduledRulesForOrg(
                 contact_id: context.contactId ?? null,
                 trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
                 action_result: JSON.stringify(stepResult),
-                status: stepResult.success ? 'executed' : 'failed',
+                status: stepResult.success ? 'executed' : stepResult.skipped ? 'skipped' : 'failed',
                 created_at: new Date(),
               }).catch(() => {})
             }
@@ -395,7 +398,7 @@ export async function runScheduledRulesForOrg(
             contact_id: context.contactId ?? null,
             trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
             action_result: JSON.stringify(stepResult),
-            status: stepResult.success ? 'executed' : 'failed',
+            status: stepResult.success ? 'executed' : stepResult.skipped ? 'skipped' : 'failed',
             created_at: new Date(),
           }).catch(() => {})
         }

@@ -690,17 +690,22 @@ export default function SimpleSettingsPage() {
           {/* Invite form - only for owner/admin */}
           {(currentUserRole === 'owner' || currentUserRole === 'admin') && (
             <div className="px-4 py-3">
-              <div className="flex gap-2">
+              {/* Phone: the address gets the full row, role and button share the
+                  next one. From sm up, all three sit on one line as before. */}
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input value={inviteEmail} onChange={e => { setInviteEmail(e.target.value); setInviteError(''); setInviteSuccess('') }}
-                  placeholder="Email address" type="email" className="flex-1 h-9 text-sm" />
-                <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}
-                  className="rounded-md border bg-background px-3 py-1.5 text-sm h-9">
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <Button type="button" size="sm" className="h-9 shrink-0" onClick={sendInvite} disabled={inviting || !inviteEmail.trim()}>
-                  {inviting ? 'Sending...' : 'Send Invite'}
-                </Button>
+                  placeholder="Email address" type="email" aria-label="Email address to invite"
+                  className="h-9 w-full min-w-0 text-sm sm:flex-1" />
+                <div className="flex gap-2">
+                  <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} aria-label="Role"
+                    className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 py-1.5 text-sm sm:flex-none">
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <Button type="button" size="sm" className="h-9 shrink-0" onClick={sendInvite} disabled={inviting || !inviteEmail.trim()}>
+                    {inviting ? 'Sending...' : 'Send Invite'}
+                  </Button>
+                </div>
               </div>
               {inviteError && <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mt-2">{inviteError}</p>}
               {inviteSuccess && <p className="text-xs text-[#047857] dark:text-[#34d399] mt-2">{inviteSuccess}</p>}

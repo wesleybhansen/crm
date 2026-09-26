@@ -7,6 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { checkCustomersAiAllowance } from '@/lib/usage/allowance'
 import { meterCustomersAi } from '@/lib/usage/meter'
 import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
+import { unsubscribedEnrollmentRefusal } from '@/modules/sequences/lib/enrollment-gate'
 
 /* Self-recommending sequences: "this lead is asking about pricing, start the
  * pricing follow-up?" GET matches an inbox conversation against
@@ -137,7 +138,7 @@ Return ONLY JSON: {"sequenceId": "<id>" | null, "reason": "<one short sentence f
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId || !auth?.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const body = await req.json()
     const conversationId = String(body.conversationId ?? '')
@@ -162,6 +163,10 @@ export async function POST(req: Request) {
       .whereIn('status', ['active', 'completed'])
       .first()
     if (existing) return NextResponse.json({ ok: false, error: 'Contact is already in this sequence' }, { status: 409 })
+
+    // Unsubscribed from this business's email: never enrolled.
+    const refusal = await unsubscribedEnrollmentRefusal(knex, { organizationId: auth.orgId, tenantId: auth.tenantId }, conv.contact_id)
+    if (refusal) return NextResponse.json({ ok: false, code: refusal.code, error: refusal.reason }, { status: 409 })
 
     // Mirror the manual enroll route: enrollment + first step execution.
     const enrollmentId = crypto.randomUUID()

@@ -31,6 +31,7 @@ function recordingKnex() {
 const NOW = new Date('2026-09-24T12:00:00.000Z')
 const INPUT = {
   executionId: 'exec-1',
+  enrollmentId: 'enr-1',
   organizationId: 'org-1',
   tenantId: 'tenant-1',
   contactId: 'contact-1',
@@ -41,6 +42,7 @@ const INPUT = {
 
 function deps(overrides: Partial<SequenceEmailStepDeps> = {}): SequenceEmailStepDeps & { send: jest.Mock } {
   return {
+    isUnsubscribed: jest.fn(async () => false),
     hasSendingSetup: jest.fn(async () => true),
     send: jest.fn(async () => ({ ok: true, fromAddress: 'owner@customer.test', messageId: 'm-1' })),
     now: () => NOW,

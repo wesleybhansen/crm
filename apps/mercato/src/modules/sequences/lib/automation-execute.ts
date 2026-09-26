@@ -11,6 +11,8 @@ import {
 import { matchesTriggerConfig } from './automation-trigger-match'
 import { conditionContext, conditionsNeedContact, evaluateConditions, parseConditions } from './automation-conditions'
 import { loadContactFacts, type ContactFacts } from './automation-contact-facts'
+import { unsubscribedEnrollmentRefusal } from './enrollment-gate'
+import { UNSUBSCRIBED_CODE } from '../../email/lib/unsubscribes'
 
 /**
  * Automation Rules Executor
@@ -234,14 +236,18 @@ async function executeAction(
       try {
         const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
         const em = knex.client?.em || (await (await import('@open-mercato/shared/lib/di/container')).createRequestContainer()).resolve('em')
-        const decrypted = await findOneWithDecryption(em, 'CustomerEntity' as any, { id: context.contactId })
+        const decrypted = await findOneWithDecryption(em, 'CustomerEntity' as any, { id: context.contactId, organizationId: orgId, tenantId } as any)
         if (decrypted) {
           contactEmail = (decrypted as any).primaryEmail || (decrypted as any).primary_email || null
           contactName = (decrypted as any).displayName || (decrypted as any).display_name || ''
         }
       } catch {
         // Fallback to raw knex
-        const contact = await knex('customer_entities').where('id', context.contactId).first()
+        const contact = await knex('customer_entities')
+          .where('id', context.contactId)
+          .where('organization_id', orgId)
+          .where('tenant_id', tenantId)
+          .first()
         // This fallback read raw, so the ':v1' guard below then dropped the send.
         if (contact) {
           const { decryptRowFields, CONTACT_ENTITY_KEY } = await import('@open-mercato/shared/lib/encryption/decryptRows')
@@ -310,6 +316,9 @@ async function executeAction(
         } catch {}
       }
 
+      // Refused by the unsubscribe gate in the router: a skip with the plain
+      // reason on the run, not a failure.
+      if (result.code === UNSUBSCRIBED_CODE) return { success: false, skipped: true, detail: result.error }
       return { success: result.ok, detail: result.ok ? `Email sent via ${result.sentVia}: ${result.messageId}` : `Email failed: ${result.error}` }
     }
 
@@ -424,6 +433,7 @@ async function executeAction(
       const sequence = await knex('sequences')
         .where('id', actionConfig.sequenceId)
         .where('organization_id', orgId)
+        .where('tenant_id', tenantId)
         .where('status', 'active')
         .whereNull('deleted_at')
         .first()
@@ -432,9 +442,15 @@ async function executeAction(
       const existingEnrollment = await knex('sequence_enrollments')
         .where('sequence_id', sequence.id)
         .where('contact_id', context.contactId)
+        .where('organization_id', orgId)
         .where('status', 'active')
         .first()
       if (existingEnrollment) return { success: true, detail: 'Already enrolled in sequence' }
+
+      // Unsubscribed from this business's email: not enrolled, and the run
+      // history says why (lib/enrollment-gate.ts).
+      const refusal = await unsubscribedEnrollmentRefusal(knex, { organizationId: orgId, tenantId }, context.contactId)
+      if (refusal) return { success: false, skipped: true, detail: refusal.reason }
 
       const enrollmentId = require('crypto').randomUUID()
       const now = new Date()
@@ -499,6 +515,7 @@ async function executeAction(
       const contact = await knex('customer_entities')
         .where('id', context.contactId)
         .where('organization_id', orgId)
+        .where('tenant_id', tenantId)
         .select('id', 'primary_email', 'display_name')
         .first()
       if (contact) {
@@ -534,6 +551,7 @@ async function executeAction(
         htmlBody: bodyHtml,
         contactId: context.contactId,
       })
+      if (surveyResult.code === UNSUBSCRIBED_CODE) return { success: false, skipped: true, detail: surveyResult.error }
       return { success: surveyResult.ok, detail: surveyResult.ok ? `Survey email sent to ${contact.primary_email}` : `Survey email failed: ${surveyResult.error}` }
     }
 

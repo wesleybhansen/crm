@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { encryptRowForRawWrite } from '@open-mercato/shared/lib/encryption/rawWrite'
+import { UNSUBSCRIBED_CODE } from '@/modules/email/lib/unsubscribes'
 
 /**
  * Execute automations for a deal stage change.
@@ -82,6 +83,11 @@ export async function POST(req: Request) {
                   htmlBody,
                   contactId,
                 })
+                // The unsubscribe gate refused it: nothing was sent, nothing to record.
+                if (sendResult.code === UNSUBSCRIBED_CODE) {
+                  results.push({ automationId: auto.id, action: 'send_email', success: false, error: sendResult.error })
+                  break
+                }
                 await knex('email_messages').insert({
                   id: require('crypto').randomUUID(),
                   tenant_id: auth.tenantId,
