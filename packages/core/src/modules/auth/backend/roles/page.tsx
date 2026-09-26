@@ -134,6 +134,9 @@ export default function RolesListPage() {
           perspective={{ tableId: 'auth.roles.list' }}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
+          // Role, Users and the row menu fit a phone-width card; only the
+          // super-admin Tenant column needs the wide, scrolling table.
+          fitOnMobile={!showTenantColumn}
         />
       </PageBody>
       {ConfirmDialogElement}
