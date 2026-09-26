@@ -3,7 +3,8 @@ import type { Knex } from 'knex'
 import { lintFairHousing } from '../../../lib/fair-housing'
 
 /*
- * Assisted replies: the Customer Service reply mode that sends some replies on
+ * Assisted replies (shown on screen as "Answer routine requests"; the stored
+ * reply_mode key stays 'assisted'): the Customer Service reply mode that sends some replies on
  * its own and drafts everything else.
  *
  * Off by default (reply_mode 'draft'). When the owner picks Assisted, a drafted
@@ -34,7 +35,7 @@ export type AssistedChannel = 'email' | 'sms'
 
 export type AssistedInquiryType = { key: string; label: string; description: string }
 
-/** The inquiry types an owner can let Assisted answer. Keys are stored; labels are shown. */
+/** The inquiry types an owner can let "Answer routine requests" answer. Keys are stored; labels are shown. */
 export const ASSISTED_INQUIRY_TYPES: readonly AssistedInquiryType[] = [
   { key: 'showing_request', label: 'Showing and tour requests', description: 'The customer wants to see a home or property, or to book a showing, tour, or open-house visit' },
   { key: 'listing_availability', label: 'Is it still available?', description: 'The customer asks whether a listing, home, or service is still available' },
@@ -369,7 +370,7 @@ export async function logAssistedActivity(
       organization_id: args.organizationId,
       entity_id: args.contactId,
       activity_type: 'auto_reply',
-      subject: `Assisted reply sent by ${channelLabel} (${kinds})`,
+      subject: `Routine request answered by ${channelLabel} (${kinds})`,
       body: `${args.subject ? `Subject: ${args.subject}\n\n` : ''}${args.body}`.slice(0, 8000),
       occurred_at: now,
       created_at: now,

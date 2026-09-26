@@ -810,7 +810,7 @@ export default function CustomerServiceSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber, csChatEnabled, flagScenarios, assisted])
 
-  // Choosing Assisted for the first time turns email on and uses this
+  // Choosing "Answer routine requests" (stored as 'assisted') for the first time turns email on and uses this
   // browser's timezone for send hours. Nothing sends until an inquiry type is picked.
   function chooseReplyMode(mode: ReplyMode) {
     if (mode === 'assisted' && !assisted.channels.email && !assisted.channels.sms && assisted.inquiryTypes.length === 0) {
@@ -896,7 +896,7 @@ export default function CustomerServiceSettingsPage() {
                 {
                   mode: 'assisted' as ReplyMode,
                   icon: ShieldCheck,
-                  title: 'Assisted',
+                  title: 'Answer routine requests',
                   desc: 'Noli answers the everyday messages you pick, like showing requests, during your hours. Anything about price, legal or loan questions, or anything it is unsure of, waits for you.',
                   rounded: '',
                 },

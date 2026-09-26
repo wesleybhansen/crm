@@ -190,7 +190,7 @@ describe('per-contact limit and activity log', () => {
     expect(ok).toBe(true)
     const [activity] = knex.db.tables.customer_activities
     expect(activity).toMatchObject({ entity_id: 'c-1', activity_type: 'auto_reply', organization_id: 'org-1' })
-    expect(String(activity!.subject)).toMatch(/^enc:Assisted reply sent by email \(Showing and tour requests\)/)
+    expect(String(activity!.subject)).toMatch(/^enc:Routine request answered by email \(Showing and tour requests\)/)
     expect(String(activity!.body)).toMatch(/^enc:/)
   })
 })
