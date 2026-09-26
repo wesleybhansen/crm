@@ -21,6 +21,8 @@ export async function checkSequenceTriggers(
     bookingPageId?: string | null
     source?: string | null
     courseId?: string | null
+    eventId?: string | null
+    productId?: string | null
   }
 ) {
   try {

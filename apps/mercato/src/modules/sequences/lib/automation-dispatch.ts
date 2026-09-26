@@ -5,6 +5,7 @@ import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelop
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { executeAutomationRules } from './automation-execute'
 import { checkSequenceTriggers } from '../services/sequence-triggers'
+import { isContactUnsubscribed } from '../../email/lib/unsubscribes'
 
 /*
  * Runs automation rules (automation_rules) and trigger-based sequences for the
@@ -16,6 +17,11 @@ import { checkSequenceTriggers } from '../services/sequence-triggers'
  * created, deal lost, contact updated and company created (subscribers),
  * course enrolled (the enrollment routes call dispatchCourseEnrolled) and
  * invoice overdue (./invoice-overdue.ts, from the scheduled-automations cron).
+ * Since 2026-09-26 the sequence triggers "Event registration" and "Product
+ * purchased" run too (dispatchEventRegistered, dispatchProductPurchased):
+ * the event registration routes and the purchase paths call them once per
+ * real registration or purchase, and neither enrolls a contact who has
+ * unsubscribed from the business's email.
  *
  * Once per event: every dispatch first claims its event key in
  * automation_trigger_dispatches (unique per org + trigger + key). A replayed
@@ -39,7 +45,17 @@ export type AutomationTriggerType =
   | 'contact_updated'
   | 'company_created'
   | 'course_enrolled'
-export type SequenceTriggerType = 'deal_stage_changed' | 'deal_won' | 'invoice_paid' | 'booking_created' | 'contact_created' | 'course_enrolled'
+  | 'event_registered'
+  | 'product_purchased'
+export type SequenceTriggerType =
+  | 'deal_stage_changed'
+  | 'deal_won'
+  | 'invoice_paid'
+  | 'booking_created'
+  | 'contact_created'
+  | 'course_enrolled'
+  | 'event_registered'
+  | 'product_purchased'
 
 export type AutomationDispatchInput = {
   organizationId: string
@@ -53,16 +69,32 @@ export type AutomationDispatchInput = {
     bookingPageId?: string | null
     source?: string | null
     courseId?: string | null
+    eventId?: string | null
+    productId?: string | null
+    /** Enroll no contact in email_unsubscribes for this organization. */
+    skipUnsubscribed?: boolean
+    /** Addresses the event carried (the registration or checkout email), checked with the contact's own. */
+    emails?: Array<string | null | undefined>
   } | null
 }
 
-type SequenceContext = { contactId: string; stage?: string; bookingPageId?: string; source?: string; courseId?: string }
+type SequenceContext = {
+  contactId: string
+  stage?: string
+  bookingPageId?: string
+  source?: string
+  courseId?: string
+  eventId?: string
+  productId?: string
+}
 
 export type AutomationDispatchDeps = {
   executeRules?: (knex: Knex, orgId: string, tenantId: string, triggerType: string, context: Record<string, unknown>) => Promise<unknown>
   checkSequences?: (knex: Knex, orgId: string, tenantId: string, triggerType: string, context: SequenceContext) => Promise<unknown>
   now?: () => Date
 }
+
+export type AutomationDispatchResult = { dispatched: boolean; sequencesSkipped?: 'unsubscribed' }
 
 const LEDGER_TABLE = 'automation_trigger_dispatches'
 
@@ -116,7 +148,7 @@ export async function dispatchAutomationTrigger(
   knex: Knex,
   input: AutomationDispatchInput,
   deps: AutomationDispatchDeps = {},
-): Promise<{ dispatched: boolean }> {
+): Promise<AutomationDispatchResult> {
   if (!(await hasListeners(knex, input))) return { dispatched: false }
   const claimed = await claimAutomationDispatch(knex, input, deps.now ? deps.now() : new Date())
   if (!claimed) return { dispatched: false }
@@ -126,13 +158,21 @@ export async function dispatchAutomationTrigger(
   await executeRules(knex, input.organizationId, input.tenantId, input.triggerType, context)
   const contactId = typeof input.context.contactId === 'string' && input.context.contactId ? input.context.contactId : null
   if (input.sequenceTrigger && contactId) {
-    const { stage, bookingPageId, source, courseId } = input.sequenceTrigger
+    const { stage, bookingPageId, source, courseId, eventId, productId } = input.sequenceTrigger
+    if (input.sequenceTrigger.skipUnsubscribed) {
+      const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      if (await isContactUnsubscribed(knex, scope, contactId, input.sequenceTrigger.emails ?? [])) {
+        return { dispatched: true, sequencesSkipped: 'unsubscribed' }
+      }
+    }
     await checkSequences(knex, input.organizationId, input.tenantId, input.sequenceTrigger.type, {
       contactId,
       ...(stage ? { stage } : {}),
       ...(bookingPageId ? { bookingPageId } : {}),
       ...(source ? { source } : {}),
       ...(courseId ? { courseId } : {}),
+      ...(eventId ? { eventId } : {}),
+      ...(productId ? { productId } : {}),
     })
   }
   return { dispatched: true }
@@ -194,6 +234,83 @@ export async function dispatchCourseEnrolled(
       paid: input.paid === true,
     },
     sequenceTrigger: { type: 'course_enrolled', courseId: input.courseId },
+  }, deps)
+}
+
+/**
+ * One registration for an event: "Event registration" sequences (optionally
+ * for one event), once per registration. A free registration, a paid one
+ * (Stripe checkout) and a walk-in signed in at the event kiosk each write
+ * their own event_attendees row, and the row id is the key, so a replayed
+ * request or a second webhook delivery never enrolls anyone twice. A
+ * contact who unsubscribed from the business's email is not enrolled.
+ */
+export async function dispatchEventRegistered(
+  knex: Knex,
+  input: {
+    organizationId: string
+    tenantId: string
+    attendeeId: string
+    eventId: string
+    contactId: string
+    email?: string | null
+    eventTitle?: string | null
+    paid?: boolean
+  },
+  deps: AutomationDispatchDeps = {},
+): Promise<AutomationDispatchResult> {
+  return dispatchAutomationTrigger(knex, {
+    organizationId: input.organizationId,
+    tenantId: input.tenantId,
+    triggerType: 'event_registered',
+    eventKey: `event_attendee:${input.attendeeId}`,
+    context: {
+      attendeeId: input.attendeeId,
+      eventId: input.eventId,
+      contactId: input.contactId,
+      reference: readable(input.eventTitle ?? null),
+      paid: input.paid === true,
+    },
+    sequenceTrigger: { type: 'event_registered', eventId: input.eventId, skipUnsubscribed: true, emails: [input.email] },
+  }, deps)
+}
+
+/**
+ * One purchase of one product: "Product purchased" sequences (optionally for
+ * one product), once per purchase. `purchaseKey` names the purchase in our
+ * own records: `checkout:<Stripe checkout session>` for a product checkout
+ * (the webhook records each session once) and `funnel_order:<order id>` for a
+ * funnel checkout, order bump or one-click upsell, so the webhook and the
+ * upsell route can both report an order and it still counts once. A contact
+ * who unsubscribed from the business's email is not enrolled.
+ */
+export async function dispatchProductPurchased(
+  knex: Knex,
+  input: {
+    organizationId: string
+    tenantId: string
+    purchaseKey: string
+    productId: string
+    contactId: string
+    email?: string | null
+    productName?: string | null
+    amount?: number | null
+  },
+  deps: AutomationDispatchDeps = {},
+): Promise<AutomationDispatchResult> {
+  const amount = input.amount != null && Number.isFinite(Number(input.amount)) ? Number(input.amount) : null
+  return dispatchAutomationTrigger(knex, {
+    organizationId: input.organizationId,
+    tenantId: input.tenantId,
+    triggerType: 'product_purchased',
+    eventKey: `purchase:${input.purchaseKey}:product:${input.productId}`,
+    context: {
+      productId: input.productId,
+      contactId: input.contactId,
+      reference: readable(input.productName ?? null),
+      amount,
+    },
+    sequenceTrigger: { type: 'product_purchased', productId: input.productId, skipUnsubscribed: true, emails: [input.email] },
   }, deps)
 }
 

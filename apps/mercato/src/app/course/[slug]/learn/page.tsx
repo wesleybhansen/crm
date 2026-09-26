@@ -34,6 +34,7 @@ export default function StudentCoursePage() {
   const [loginEmail, setLoginEmail] = useState('')
   const [loginSending, setLoginSending] = useState(false)
   const [loginSent, setLoginSent] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [completing, setCompleting] = useState(false)
 
@@ -74,12 +75,16 @@ export default function StudentCoursePage() {
   const handleLogin = async () => {
     if (!loginEmail.trim()) return
     setLoginSending(true)
+    setLoginError(null)
     try {
       const res = await fetch('/api/courses/student/magic-link', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail, courseSlug: slug }),
       })
+      const data = await res.json().catch(() => null) as { code?: string; error?: string } | null
       if (res.ok) setLoginSent(true)
+      // The business has no email set up: say so plainly instead of "try again".
+      else if (data?.code === 'email_not_connected' && data.error) setLoginError(data.error)
       else alert('We could not send your access link. Please try again in a moment.')
     } catch {
       alert('We could not send your access link. Check your connection and try again.')
@@ -243,6 +248,9 @@ export default function StudentCoursePage() {
                   style={{ width: '100%', padding: '13px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: 600, cursor: 'pointer', opacity: loginSending ? 0.6 : 1, fontFamily: 'inherit', transition: 'background 150ms' }}>
                   {loginSending ? 'Sending...' : 'Get Access Link'}
                 </button>
+                {loginError && (
+                  <p role="alert" style={{ color: '#b91c1c', fontSize: '14px', lineHeight: 1.5, marginTop: '14px', marginBottom: 0 }}>{loginError}</p>
+                )}
               </>
             )}
           </div>

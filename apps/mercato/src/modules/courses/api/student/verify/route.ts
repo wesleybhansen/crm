@@ -36,6 +36,9 @@ export async function GET(req: Request) {
     if (!magicToken || !check || !check.ok) {
       const reason = check && !check.ok ? check.reason : 'invalid'
       const email = magicToken ? escapeHtml(magicToken.email) : ''
+      // The resend names the business through the link it sent (a hex token
+      // from our own row), so a business without email gets a plain answer.
+      const resendToken = magicToken ? JSON.stringify(String(magicToken.token)).replace(/</g, '\\u003c') : 'null'
       const ttl = magicLinkTtlLabel()
       const copy = reason === 'expired'
         ? { title: 'Link expired', body: `This access link has expired. Links are valid for ${ttl} after they are sent. Enter your email below to get a new one instantly.` }
@@ -54,12 +57,14 @@ button{width:100%;padding:13px;background:#6366f1;color:#fff;border:none;border-
 button:hover{background:#4f46e5}
 button:disabled{opacity:0.6;cursor:not-allowed}
 .sent{color:#22c55e;font-weight:600;font-size:15px;padding:12px 0}
+.err{color:#b91c1c;font-size:14px;line-height:1.5;margin:0 0 12px}
 .sub{color:#94a3b8;font-size:13px;margin-top:16px}</style></head>
 <body><div class="card">
 <div class="icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
 <h1>${copy.title}</h1>
 <p>${copy.body}</p>
 <div id="form">
+<p id="err" class="err" role="alert" style="display:none"></p>
 <input type="email" id="email" placeholder="your@email.com" value="${email}">
 <button onclick="resend()" id="btn">Send New Link</button>
 </div>
@@ -67,7 +72,8 @@ button:disabled{opacity:0.6;cursor:not-allowed}
 <p class="sub">Your new link will be sent instantly</p>
 </div>
 <script>
-async function resend(){var e=document.getElementById('email').value.trim();if(!e)return;var b=document.getElementById('btn');b.disabled=true;b.textContent='Sending...';try{await fetch('/api/courses/student/magic-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e})});document.getElementById('form').style.display='none';document.getElementById('sent').style.display='block'}catch{b.disabled=false;b.textContent='Send New Link'}}
+var T=${resendToken};
+async function resend(){var e=document.getElementById('email').value.trim();if(!e)return;var b=document.getElementById('btn');var er=document.getElementById('err');er.style.display='none';b.disabled=true;b.textContent='Sending...';try{var r=await fetch('/api/courses/student/magic-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e,token:T})});var d=null;try{d=await r.json()}catch(x){}if(d&&d.code==='email_not_connected'&&d.error){er.textContent=d.error;er.style.display='block';b.disabled=false;b.textContent='Send New Link';return}document.getElementById('form').style.display='none';document.getElementById('sent').style.display='block'}catch(x){b.disabled=false;b.textContent='Send New Link'}}
 document.getElementById('email').addEventListener('keydown',function(e){if(e.key==='Enter')resend()});
 </script></body></html>`
       return new NextResponse(html, { status: 400, headers: { 'Content-Type': 'text/html' } })

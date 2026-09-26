@@ -299,6 +299,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
           description: `Walk-in via kiosk on ${now.toLocaleDateString()}`,
           metadata: { eventId: event.id, walkIn: true },
         })
+        // A walk-in is a new registration: "Event registration" sequences run
+        // once for it (never for a contact who unsubscribed).
+        const { dispatchEventRegistered } = await import('@/modules/sequences/lib/automation-dispatch')
+        await dispatchEventRegistered(knex, {
+          organizationId: String(event.organization_id),
+          tenantId: String(event.tenant_id),
+          attendeeId,
+          eventId: String(event.id),
+          contactId,
+          email,
+          eventTitle: event.title ?? null,
+          paid: false,
+        }).catch((err: unknown) => console.error('[crm-events.kiosk.signin] event registration sequences failed (non-fatal):', err))
       }
     } catch (contactErr) {
       console.error('[crm-events.kiosk.signin] contact creation failed (non-fatal):', contactErr)
