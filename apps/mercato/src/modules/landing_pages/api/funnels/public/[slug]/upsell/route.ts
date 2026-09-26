@@ -117,8 +117,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
 
         if (paymentIntent.status === 'succeeded') {
           // Create order record
+          const orderId = crypto.randomUUID()
           await knex('funnel_orders').insert({
-            id: crypto.randomUUID(),
+            id: orderId,
             session_id: session.id, funnel_id: funnel.id, step_id: step.id,
             product_id: step.product_id || null,
             amount: amount / 100, currency: currency.toUpperCase(),
@@ -132,6 +133,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
             total_revenue: knex.raw('total_revenue + ?', [amount / 100]),
             updated_at: new Date(),
           })
+
+          // "Product purchased" sequences for this order, once (the Stripe
+          // webhook keys funnel orders the same way); never for a contact
+          // who unsubscribed. Non-fatal: the charge already went through.
+          if (product && session.contact_id && funnel.tenant_id) {
+            try {
+              const { dispatchProductPurchased } = await import('@/modules/sequences/lib/automation-dispatch')
+              await dispatchProductPurchased(knex, {
+                organizationId: String(funnel.organization_id),
+                tenantId: String(funnel.tenant_id),
+                purchaseKey: `funnel_order:${orderId}`,
+                productId: String(product.id),
+                contactId: String(session.contact_id),
+                email: typeof session.email === 'string' ? session.email : null,
+                productName: product.name ?? null,
+                amount: amount / 100,
+              })
+            } catch (dispatchErr) {
+              console.error('[funnel.upsell] product purchased sequences failed (non-fatal):', dispatchErr)
+            }
+          }
         }
       } catch (stripeError: any) {
         // Payment failed — treat as decline and redirect to decline path

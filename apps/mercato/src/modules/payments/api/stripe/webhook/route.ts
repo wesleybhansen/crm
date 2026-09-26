@@ -38,6 +38,16 @@ async function dispatchCourseEnrolledSafely(
   }
 }
 
+/** Any other sequence/automation dispatch for a recorded payment. Never
+ *  throws, for the same reason. */
+async function runDispatchSafely(label: string, run: () => Promise<unknown>): Promise<void> {
+  try {
+    await run()
+  } catch (err) {
+    console.error(`[stripe.webhook] ${label} automations failed (non-fatal):`, err)
+  }
+}
+
 export async function POST(req: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -581,6 +591,25 @@ export async function POST(req: Request) {
               }).catch(() => {})
             }
 
+            // "Event registration" sequences, once per registration, for an
+            // event of this organization; never for an unsubscribed contact.
+            if (contactId && event && String(event.organization_id) === attOrgId) {
+              const registeredContactId = contactId
+              await runDispatchSafely('event_registered', async () => {
+                const { dispatchEventRegistered } = await import('@/modules/sequences/lib/automation-dispatch')
+                await dispatchEventRegistered(knex, {
+                  organizationId: attOrgId,
+                  tenantId: attTenantId,
+                  attendeeId,
+                  eventId: String(event.id),
+                  contactId: registeredContactId,
+                  email: attendeeEmail,
+                  eventTitle: event.title ?? null,
+                  paid: true,
+                })
+              })
+            }
+
             // Send confirmation email
             if (event) {
               const eventDate = new Date(event.start_time).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
@@ -767,6 +796,42 @@ export async function POST(req: Request) {
               } catch {}
             }
 
+            // "Product purchased" sequences: once per paid funnel order (the
+            // checkout, its order bumps, and an upsell recorded before this
+            // delivery), keyed on the order so the upsell route's own report
+            // of the same order does not count twice.
+            const orderOrgId = String(meta.orgId || orgId)
+            const orderTenantId = String(meta.tenantId || tenantId)
+            if (contactId && String(funnelSession.organization_id) === orderOrgId) {
+              const buyerId = contactId
+              await runDispatchSafely('product_purchased', async () => {
+                const { dispatchProductPurchased } = await import('@/modules/sequences/lib/automation-dispatch')
+                const paidOrders = await knex('funnel_orders')
+                  .where('session_id', meta.sessionId)
+                  .where('status', 'succeeded')
+                  .whereNotNull('product_id')
+                  .select('id', 'product_id', 'amount')
+                for (const order of paidOrders) {
+                  const product = await knex('products')
+                    .where('id', order.product_id)
+                    .where('organization_id', orderOrgId)
+                    .where('tenant_id', orderTenantId)
+                    .first('id', 'name')
+                  if (!product) continue
+                  await dispatchProductPurchased(knex, {
+                    organizationId: orderOrgId,
+                    tenantId: orderTenantId,
+                    purchaseKey: `funnel_order:${order.id}`,
+                    productId: String(product.id),
+                    contactId: buyerId,
+                    email: funnelContactEmail || null,
+                    productName: product.name ?? null,
+                    amount: order.amount == null ? null : Number(order.amount),
+                  })
+                }
+              })
+            }
+
             console.log(`[stripe.webhook] Funnel checkout completed: session=${meta.sessionId}, amount=$${checkoutAmount}`)
           }
         } catch (funnelErr) {
@@ -828,6 +893,33 @@ export async function POST(req: Request) {
         } catch (prodErr) {
           console.error('[stripe.webhook] product course enrollment failed:', prodErr)
         }
+      }
+
+      // ── "Product purchased" sequences ──
+      // Once per checkout session (the payment record above is written once
+      // per session), for a product of this organization; never for a
+      // contact who unsubscribed.
+      if (meta.productId && resolvedContactId) {
+        const buyerId = resolvedContactId
+        await runDispatchSafely('product_purchased', async () => {
+          const product = await knex('products')
+            .where('id', meta.productId)
+            .where('organization_id', orgId)
+            .where('tenant_id', tenantId)
+            .first('id', 'name')
+          if (!product) return
+          const { dispatchProductPurchased } = await import('@/modules/sequences/lib/automation-dispatch')
+          await dispatchProductPurchased(knex, {
+            organizationId: orgId!,
+            tenantId: tenantId!,
+            purchaseKey: `checkout:${session.id}`,
+            productId: String(product.id),
+            contactId: buyerId,
+            email: customerEmail,
+            productName: product.name ?? null,
+            amount: (session.amount_total || 0) / 100,
+          })
+        })
       }
 
       if (landingCheckoutId) {

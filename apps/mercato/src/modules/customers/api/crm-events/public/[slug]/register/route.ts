@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'crypto'
 import { attendeeEmailHashes, encryptAttendeeRow, whereAttendeeEmail } from '@/modules/customers/lib/event-attendees'
 import { signEventCalendarToken } from '../../../../../lib/event-calendar-token'
+import { dispatchEventRegistered } from '@/modules/sequences/lib/automation-dispatch'
 
 
 export const metadata = { path: '/crm-events/public/[slug]/register', POST: { requireAuth: false, rateLimit: { points: 10, duration: 60, blockDuration: 300, keyPrefix: 'events-public-register' } } }
@@ -123,6 +124,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         const [{ count }] = await knex('email_list_members').where('list_id', eventList.id).count()
         await knex('email_lists').where('id', eventList.id).update({ member_count: Number(count), updated_at: new Date() })
       } catch {}
+    }
+
+    // "Event registration" sequences, once per registration; never for a
+    // contact who unsubscribed. Non-fatal: the registration already stands.
+    if (contactId) {
+      try {
+        await dispatchEventRegistered(knex, {
+          organizationId: String(event.organization_id),
+          tenantId: String(event.tenant_id),
+          attendeeId,
+          eventId: String(event.id),
+          contactId,
+          email: email.trim().toLowerCase(),
+          eventTitle: event.title ?? null,
+          paid: false,
+        })
+      } catch (err) {
+        console.error('[event.register] event registration sequences failed (non-fatal):', err)
+      }
     }
 
     // Build calendar link for the confirmation email

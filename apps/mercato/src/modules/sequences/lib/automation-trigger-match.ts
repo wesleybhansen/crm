@@ -149,6 +149,12 @@ export function matchesSequenceTrigger(triggerType: string, config: Config, cont
       return sourceMatches(config.source, context.source)
     case 'course_enrolled':
       return sameId(config.courseId, context.courseId)
+    // The Sequences editor saves the picked event under `eventId` and the
+    // picked product under `productId`; empty means any.
+    case 'event_registered':
+      return sameId(config.eventId, context.eventId)
+    case 'product_purchased':
+      return sameId(config.productId, context.productId)
     default:
       return true
   }
