@@ -397,6 +397,39 @@ export async function sendEmailByPurpose(
     console.error('[email-router] refused an undecrypted send', { orgId, purpose, part: badPart })
     return { ok: false, code: 'undecryptable', error: UNDECRYPTED_SEND_ERROR }
   }
+  // The unsubscribe gate (2026-09-26): a marketing or automation email never
+  // reaches a person who unsubscribed from this business (email_unsubscribes,
+  // by contact or address, this organization and tenant only). Transactional
+  // purposes are not checked. If the list cannot be read, nothing is sent.
+  // First, so an unsubscribed person is reported as such whatever the
+  // business's email setup.
+  if (isUnsubscribeGatedPurpose(purpose)) {
+    let unsubscribed: boolean
+    try {
+      unsubscribed = await isRecipientUnsubscribed(knex, { organizationId: orgId, tenantId }, {
+        contactId: params.contactId ?? null,
+        emails: [params.to],
+      })
+    } catch (err) {
+      console.error('[email-router] unsubscribe list unavailable; refusing a marketing send', { orgId, purpose, error: err instanceof Error ? err.message : String(err) })
+      return { ok: false, code: UNSUBSCRIBE_CHECK_FAILED_CODE, error: UNSUBSCRIBE_CHECK_FAILED_MESSAGE }
+    }
+    if (unsubscribed) {
+      if (params.contactId) {
+        await logTimelineEvent(knex, {
+          tenantId,
+          organizationId: orgId,
+          contactId: params.contactId,
+          eventType: 'email_not_sent',
+          title: `Email not sent: ${params.subject || '(no subject)'}`,
+          description: UNSUBSCRIBED_SEND_REASON,
+          metadata: { purpose, reason: UNSUBSCRIBED_CODE },
+        }).catch(() => {})
+      }
+      return { ok: false, code: UNSUBSCRIBED_CODE, error: UNSUBSCRIBED_SEND_REASON }
+    }
+  }
+
   const { getProviderForPurpose } = await import('./routing-service')
   const actingUserId = params.actingUserId ?? null
   const resolved = await getProviderForPurpose(knex, orgId, purpose, actingUserId)
@@ -436,37 +469,6 @@ export async function sendEmailByPurpose(
   }
 
   const { to, cc, bcc, subject, htmlBody, textBody, contactId } = params
-
-  // The unsubscribe gate (2026-09-26): a marketing or automation email never
-  // reaches a person who unsubscribed from this business (email_unsubscribes,
-  // by contact or address, this organization and tenant only). Transactional
-  // purposes are not checked. If the list cannot be read, nothing is sent.
-  if (isUnsubscribeGatedPurpose(purpose)) {
-    let unsubscribed: boolean
-    try {
-      unsubscribed = await isRecipientUnsubscribed(knex, { organizationId: orgId, tenantId }, {
-        contactId: contactId ?? null,
-        emails: [to],
-      })
-    } catch (err) {
-      console.error('[email-router] unsubscribe list unavailable; refusing a marketing send', { orgId, purpose, error: err instanceof Error ? err.message : String(err) })
-      return { ok: false, code: UNSUBSCRIBE_CHECK_FAILED_CODE, error: UNSUBSCRIBE_CHECK_FAILED_MESSAGE }
-    }
-    if (unsubscribed) {
-      if (contactId) {
-        await logTimelineEvent(knex, {
-          tenantId,
-          organizationId: orgId,
-          contactId,
-          eventType: 'email_not_sent',
-          title: `Email not sent: ${subject || '(no subject)'}`,
-          description: UNSUBSCRIBED_SEND_REASON,
-          metadata: { purpose, reason: UNSUBSCRIBED_CODE },
-        }).catch(() => {})
-      }
-      return { ok: false, code: UNSUBSCRIBED_CODE, error: UNSUBSCRIBED_SEND_REASON }
-    }
-  }
 
   const displayName = resolved.fromName || params.fromName || null
   const fromDisplay = displayName

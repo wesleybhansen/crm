@@ -16,6 +16,7 @@ jest.mock('../esp-service', () => ({
 }))
 
 import { createFakeDb } from '../../../../lib/__tests__/support/fake-db'
+import { getProviderForPurpose } from '../routing-service'
 import { sendEmailByPurpose, UNSUBSCRIBE_CHECK_FAILED_CODE } from '../email-router'
 import { EMAIL_PURPOSES, type EmailPurpose } from '../routing-service'
 import { isUnsubscribeGatedPurpose, UNSUBSCRIBED_CODE, UNSUBSCRIBED_SEND_REASON } from '../unsubscribes'
@@ -93,6 +94,13 @@ describe('sendEmailByPurpose: unsubscribe gate', () => {
     const res = await sendEmailByPurpose(knex as never, ORG, TENANT, 'marketing', params('lee@example.test', 'c-lee'))
     expect(res.ok).toBe(true)
     expect(mockSendViaESP).toHaveBeenCalledTimes(1)
+  })
+
+  it('the gate runs before the sender is resolved, so it holds whatever the business’s email setup', async () => {
+    const knex = world()
+    const res = await sendEmailByPurpose(knex as never, ORG, TENANT, 'automations', params('dana@example.test', 'c-dana'))
+    expect(res.code).toBe(UNSUBSCRIBED_CODE)
+    expect(getProviderForPurpose).not.toHaveBeenCalled()
   })
 
   it('if the unsubscribe list cannot be read, a marketing email is not sent; a transactional one is', async () => {
