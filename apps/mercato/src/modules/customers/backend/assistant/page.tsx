@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Mic, MicOff, Send, Trash2, Volume2, Loader2, Check, X, AlertCircle, Sparkles, Plus, Archive, MessageSquare, BarChart3, CalendarDays, CheckSquare, Flame, Pencil } from 'lucide-react'
-import { READ_ONLY_TOOLS } from '@/modules/customers/lib/crm-tool-catalog'
+import { requiresConfirmation, runVoiceToolCall } from '@/modules/customers/lib/assistant-action-policy'
 import { runAutomationAction } from '@/modules/customers/lib/assistant-automation-action'
 import { fetchListForAssistant, fetchJsonForAssistant, upcomingOnly } from '@/modules/customers/lib/assistant-read-result'
 
@@ -33,6 +33,11 @@ interface Message {
    * them) but never rendered in the chat.
    */
   hidden?: boolean
+  /**
+   * Set on a voice-mode Confirm/Cancel prompt: keys the waiting tool call so
+   * the click resolves the right one even if messages were added meanwhile.
+   */
+  confirmId?: string
 }
 
 // Verbs that suggest a state-changing action happened. If the model's audio
@@ -85,61 +90,69 @@ function pickActionLabel(args: Record<string, any>): string | null {
   return null
 }
 
-// Return a short human-readable summary of what a destructive action would
-// do, shown in the confirmation prompt.
-function describeDestructive(action: CrmAction): string {
+// Return a short human-readable summary of what an action that needs the
+// user's go-ahead (delete, send, publish, money) would do, shown in the
+// voice-mode confirmation prompt.
+function describeConfirmable(action: CrmAction): string {
   const { type, data } = action
   const label = pickActionLabel(data || {}) || ''
   const sub = (data?.action || '').toString()
+  const to = typeof data?.to === 'string' && data.to.trim() ? data.to.trim().slice(0, 80) : ''
+  if (type === 'send_email')                                         return `Send email${to ? ` to ${to}` : ''}${data?.subject ? ` "${String(data.subject).slice(0, 60)}"` : ''}`
+  if (type === 'send_sms')                                           return `Send text message${to ? ` to ${to}` : ''}`
+  if (type === 'send_invoice' || (type === 'manage_invoice' && sub === 'send'))
+                                                                     return 'Send invoice to the client'
+  if (type === 'enroll_in_sequence')                                 return 'Enroll contact in sequence (starts sending emails)'
+  if (type === 'activate_sequence' || (type === 'manage_sequence_advanced' && sub === 'activate'))
+                                                                     return 'Activate sequence (starts sending emails)'
   if (type === 'delete_contact')                                     return `Delete contact${label ? ` "${label}"` : ''}`
-  if (type === 'manage_deal' && sub === 'delete')                    return `Delete deal${label ? ` "${label}"` : ''}`
+  if (type === 'delete_deal' || (type === 'manage_deal' && sub === 'delete'))
+                                                                     return `Delete deal${label ? ` "${label}"` : ''}`
+  if (type === 'close_deal')                                         return `Close deal${label ? ` "${label}"` : ''} as ${data?.result === 'won' ? 'won' : 'lost'}`
   if (type === 'manage_deal' && sub === 'close_lost')                return `Close deal${label ? ` "${label}"` : ''} as lost`
-  if (type === 'manage_task_advanced' && sub === 'delete')           return `Delete task${label ? ` "${label}"` : ''}`
-  if (type === 'manage_event_advanced' && sub === 'delete')          return `Delete event${label ? ` "${label}"` : ''}`
-  if (type === 'manage_event_advanced' && sub === 'cancel')          return `Cancel event${label ? ` "${label}"` : ''}`
-  if (type === 'manage_invoice' && sub === 'delete')                 return `Delete invoice${label ? ` "${label}"` : ''}`
-  if (type === 'manage_landing_page' && sub === 'delete')            return `Delete landing page${label ? ` "${label}"` : ''}`
+  if (type === 'manage_deal' && sub === 'close_won')                 return `Close deal${label ? ` "${label}"` : ''} as won`
+  if (type === 'move_deal_stage' || type === 'edit_deal' || type === 'manage_deal')
+                                                                     return `Move deal to "${String(data?.stage || '')}"`
+  if (type === 'delete_task' || (type === 'manage_task_advanced' && sub === 'delete'))
+                                                                     return `Delete task${label ? ` "${label}"` : ''}`
+  if (type === 'delete_event' || (type === 'manage_event_advanced' && sub === 'delete'))
+                                                                     return `Delete event${label ? ` "${label}"` : ''}`
+  if (type === 'cancel_event' || (type === 'manage_event_advanced' && sub === 'cancel'))
+                                                                     return `Cancel event${label ? ` "${label}"` : ''}`
+  if (type === 'manage_event_advanced' && sub === 'email_attendees') return 'Email all event attendees'
+  if (type === 'delete_invoice' || (type === 'manage_invoice' && sub === 'delete'))
+                                                                     return 'Delete invoice'
+  if (type === 'mark_invoice_paid' || (type === 'manage_invoice' && sub === 'mark_paid'))
+                                                                     return 'Mark invoice as paid'
+  if (type === 'delete_landing_page' || (type === 'manage_landing_page' && sub === 'delete'))
+                                                                     return `Delete landing page${label ? ` "${label}"` : ''}`
+  if (type === 'create_landing_page')                                return `Create and publish landing page${label ? ` "${label}"` : ''}`
+  if (type === 'publish_landing_page' || (type === 'manage_landing_page' && sub === 'publish'))
+                                                                     return 'Publish landing page'
   if (type === 'manage_funnel' && sub === 'delete')                  return `Delete funnel${label ? ` "${label}"` : ''}`
-  if (type === 'manage_booking' && (sub === 'delete' || sub === 'cancel' || sub === 'delete_page'))
+  if (type === 'delete_booking_page' || (type === 'manage_booking' && sub === 'delete_page'))
+                                                                     return `Delete booking page${label ? ` "${label}"` : ''}`
+  if (type === 'manage_booking' && (sub === 'delete' || sub === 'cancel'))
                                                                      return `Cancel/delete booking${label ? ` "${label}"` : ''}`
   if (type === 'manage_survey_advanced' && sub === 'delete')         return `Delete survey${label ? ` "${label}"` : ''}`
+  if (type === 'manage_survey_advanced' && sub === 'send')           return 'Send survey by email'
   if (type === 'manage_form_advanced' && sub === 'delete')           return `Delete form${label ? ` "${label}"` : ''}`
   if (type === 'manage_course_advanced' && sub === 'delete')         return `Delete course${label ? ` "${label}"` : ''}`
   if (type === 'manage_sequence_advanced' && sub === 'delete')       return `Delete sequence${label ? ` "${label}"` : ''}`
-  if (type === 'manage_product_advanced' && sub === 'delete')        return `Delete product${label ? ` "${label}"` : ''}`
+  if (type === 'delete_product' || (type === 'manage_product_advanced' && sub === 'delete'))
+                                                                     return `Delete product${label ? ` "${label}"` : ''}`
   if (type === 'manage_chat_widget' && sub === 'delete')             return `Delete chat widget${label ? ` "${label}"` : ''}`
   if (type === 'manage_email_list_advanced' && (sub === 'delete' || sub === 'remove_member'))
                                                                      return `Remove from email list`
   if (type === 'manage_campaign' && (sub === 'delete' || sub === 'send'))
                                                                      return sub === 'send' ? `Send email campaign${label ? ` "${label}"` : ''}` : `Delete campaign${label ? ` "${label}"` : ''}`
+  if (type === 'manage_inbox_conversation' && sub === 'reply')       return 'Send reply to this conversation'
+  if (type === 'create_automation_rule')                             return `Create active automation${label ? ` "${label}"` : ''}`
   if (type === 'manage_automation_advanced' && sub === 'delete')     return `Delete automation${label ? ` "${label}"` : ''}`
+  if (type === 'update_settings' && sub === 'invite_team')           return 'Invite a team member by email'
   if (type === 'process_payment' && sub === 'refund')                return `Refund payment${label ? ` "${label}"` : ''}`
   if (type === 'process_payment' && sub === 'cancel_subscription')   return `Cancel subscription${label ? ` "${label}"` : ''}`
-  return `${type.replace(/_/g, ' ')}${sub ? ` (${sub})` : ''}`
-}
-
-function isDestructiveAction(action: CrmAction): boolean {
-  const { type, data } = action
-  const sub = (data?.action || '').toString()
-  if (type === 'delete_contact') return true
-  if (type === 'manage_deal' && (sub === 'delete' || sub === 'close_lost')) return true
-  if (type === 'manage_task_advanced' && sub === 'delete') return true
-  if (type === 'manage_event_advanced' && (sub === 'delete' || sub === 'cancel')) return true
-  if (type === 'manage_invoice' && sub === 'delete') return true
-  if (type === 'manage_landing_page' && sub === 'delete') return true
-  if (type === 'manage_funnel' && sub === 'delete') return true
-  if (type === 'manage_booking' && (sub === 'delete' || sub === 'cancel' || sub === 'delete_page')) return true
-  if (type === 'manage_survey_advanced' && sub === 'delete') return true
-  if (type === 'manage_form_advanced' && sub === 'delete') return true
-  if (type === 'manage_course_advanced' && sub === 'delete') return true
-  if (type === 'manage_sequence_advanced' && sub === 'delete') return true
-  if (type === 'manage_product_advanced' && sub === 'delete') return true
-  if (type === 'manage_chat_widget' && sub === 'delete') return true
-  if (type === 'manage_email_list_advanced' && (sub === 'delete' || sub === 'remove_member')) return true
-  if (type === 'manage_campaign' && (sub === 'delete' || sub === 'send')) return true
-  if (type === 'manage_automation_advanced' && sub === 'delete') return true
-  if (type === 'process_payment' && (sub === 'refund' || sub === 'cancel_subscription')) return true
-  return false
+  return `${type.replace(/_/g, ' ')}${sub ? ` (${sub.replace(/_/g, ' ')})` : ''}${label ? ` "${label}"` : ''}`
 }
 
 interface CrmAction {
@@ -1427,7 +1440,7 @@ export default function VoiceAssistantPage() {
   // Map of messageIndex → resolver function for pending confirmation prompts.
   // When the user clicks Confirm/Cancel the resolver fires and the Promise in
   // handleRealtimeToolCall continues.
-  const pendingConfirmsRef = useRef<Map<number, (confirmed: boolean) => void>>(new Map())
+  const pendingConfirmsRef = useRef<Map<string, (confirmed: boolean) => void>>(new Map())
 
   // Load persona + action items for a proactive greeting
   useEffect(() => {
@@ -1848,96 +1861,70 @@ export default function VoiceAssistantPage() {
     setMessages(prev => prev.map(m => m === message ? { ...m, reconciliationWarning: null } : m))
   }
 
+  function sendToolOutput(callId: string, payload: Record<string, unknown>) {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    wsRef.current.send(JSON.stringify({
+      type: 'conversation.item.create',
+      item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(payload) },
+    }))
+    wsRef.current.send(JSON.stringify({ type: 'response.create' }))
+  }
+
   async function handleRealtimeToolCall(callId: string, name: string, argsStr: string | object) {
     try {
       const data = typeof argsStr === 'string' ? JSON.parse(argsStr) : argsStr
-      const action = { type: name, data }
-
-      // Destructive actions require explicit user confirmation before we run
-      // them. Block here, render a Confirm/Cancel prompt, and wait.
-      if (isDestructiveAction(action)) {
-        const confirmLabel = describeDestructive(action)
-        let promptIndex = -1
-        setMessages(prev => {
-          promptIndex = prev.length
-          return [...prev, {
+      const action: CrmAction = { type: name, data }
+      // Voice runs tool calls as the model emits them, so the same rule as
+      // text mode is enforced here: deletes, sends, publishes and money moves
+      // wait for an explicit Confirm click (see assistant-action-policy.ts).
+      const confirmId = `voice-${callId}-${Date.now()}`
+      const matchesPrompt = (m: Message) => m.confirmId === confirmId
+      const outcome = await runVoiceToolCall(action, {
+        requestConfirmation: () => new Promise<boolean>(resolve => {
+          pendingConfirmsRef.current.set(confirmId, resolve)
+          setMessages(prev => [...prev, {
             role: 'assistant',
-            content: `Confirm: ${confirmLabel}?`,
+            content: `Confirm: ${describeConfirmable(action)}?`,
             action,
             actionStatus: 'pending',
-          }]
-        })
+            confirmId,
+          }])
+        }),
+        onAutoExecute: () => {
+          // Extract a short human label from the args for the executing bubble,
+          // e.g. "create_contact(Maria Chen)" instead of just "create contact".
+          const label = pickActionLabel(data) || name.replace(/_/g, ' ')
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Executing: ${label}`,
+            action,
+            actionStatus: 'executing',
+            confirmId,
+          }])
+        },
+        execute: async (a) => {
+          setMessages(prev => prev.map(m => matchesPrompt(m) ? { ...m, actionStatus: 'executing' } : m))
+          return executeCrmAction(a as CrmAction)
+        },
+      })
 
-        const confirmed = await new Promise<boolean>(resolve => {
-          pendingConfirmsRef.current.set(promptIndex, resolve)
-        })
-
-        setMessages(prev => prev.map((m, i) => i === promptIndex
-          ? { ...m, actionStatus: confirmed ? 'executing' : 'cancelled' }
-          : m))
-
-        if (!confirmed) {
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-              type: 'conversation.item.create',
-              item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: false, message: 'User cancelled the action. Tell them briefly.', instruction: 'Do NOT retry unless the user explicitly asks again.' }) },
-            }))
-            wsRef.current.send(JSON.stringify({ type: 'response.create' }))
-          }
-          return
-        }
-
-        const result = await executeCrmAction(action)
-        setMessages(prev => prev.map((m, i) => i === promptIndex
-          ? { ...m, actionStatus: result.ok ? 'success' : 'error', actionResult: result.message }
-          : m))
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const output = result.ok
-            ? JSON.stringify(result)
-            : JSON.stringify({ ...result, instruction: 'The action failed. Tell the user what went wrong. Do NOT retry the action.' })
-          wsRef.current.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output } }))
-          wsRef.current.send(JSON.stringify({ type: 'response.create' }))
-        }
+      if (outcome.status === 'cancelled') {
+        setMessages(prev => prev.map(m => matchesPrompt(m) ? { ...m, actionStatus: 'cancelled' } : m))
+        sendToolOutput(callId, { ok: false, message: 'User cancelled the action. Tell them briefly.', instruction: 'Do NOT retry unless the user explicitly asks again.' })
         return
       }
 
-      // Extract a short human label from the args for the executing bubble,
-      // e.g. "create_contact(Maria Chen)" instead of just "create contact".
-      const label = pickActionLabel(data) || name.replace(/_/g, ' ')
-
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `Executing: ${label}`,
-        action,
-        actionStatus: 'executing',
-      }])
-
-      const result = await executeCrmAction(action)
-
-      setMessages(prev => prev.map((m, i) =>
-        i === prev.length - 1 ? { ...m, actionStatus: result.ok ? 'success' : 'error', actionResult: result.message } : m
-      ))
-
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        const output = result.ok
-          ? JSON.stringify(result)
-          : JSON.stringify({ ...result, instruction: 'The action failed. Tell the user what went wrong. Do NOT retry the action.' })
-        wsRef.current.send(JSON.stringify({
-          type: 'conversation.item.create',
-          item: { type: 'function_call_output', call_id: callId, output }
-        }))
-        wsRef.current.send(JSON.stringify({ type: 'response.create' }))
-      }
+      const result = outcome.result
+      setMessages(prev => prev.map(m => matchesPrompt(m)
+        ? { ...m, actionStatus: result.ok ? 'success' : 'error', actionResult: result.message }
+        : m))
+      sendToolOutput(callId, result.ok
+        ? { ...result }
+        : { ...result, instruction: 'The action failed. Tell the user what went wrong. Do NOT retry the action.' })
     } catch (err: any) {
       console.error('[realtime] Tool call error:', err)
       // Send failure back to prevent retry loop
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: 'conversation.item.create',
-          item: { type: 'function_call_output', call_id: callId, output: JSON.stringify({ ok: false, message: 'Action failed unexpectedly. Do NOT retry.' }) }
-        }))
-        wsRef.current.send(JSON.stringify({ type: 'response.create' }))
-      }
+      sendToolOutput(callId, { ok: false, message: 'Action failed unexpectedly. Do NOT retry.' })
     }
   }
 
@@ -1983,7 +1970,7 @@ export default function VoiceAssistantPage() {
     const pendingToolResults: string[] = []
 
     for (const seg of segments) {
-      if (seg.action && READ_ONLY_TOOLS.has(seg.action.type)) {
+      if (seg.action && !requiresConfirmation(seg.action, 'text')) {
         // Auto-execute the lookup — no confirm gate for non-mutating reads.
         const msg: Message = { role: 'assistant', content: seg.content, action: seg.action, actionStatus: 'executing', provider }
         updated = [...updated, msg]
@@ -2051,11 +2038,11 @@ export default function VoiceAssistantPage() {
     const msg = messages[msgIndex]
     if (!msg?.action) return
 
-    // If this prompt came from a destructive-action gate, resolve the promise
+    // If this prompt came from the voice confirmation gate, resolve the promise
     // so handleRealtimeToolCall can continue with execution + function_call_output.
-    const realtimeResolver = pendingConfirmsRef.current.get(msgIndex)
-    if (realtimeResolver) {
-      pendingConfirmsRef.current.delete(msgIndex)
+    const realtimeResolver = msg.confirmId ? pendingConfirmsRef.current.get(msg.confirmId) : undefined
+    if (msg.confirmId && realtimeResolver) {
+      pendingConfirmsRef.current.delete(msg.confirmId)
       realtimeResolver(true)
       return
     }
@@ -2073,14 +2060,15 @@ export default function VoiceAssistantPage() {
   }, [messages])
 
   const cancelAction = useCallback((msgIndex: number) => {
-    const realtimeResolver = pendingConfirmsRef.current.get(msgIndex)
-    if (realtimeResolver) {
-      pendingConfirmsRef.current.delete(msgIndex)
+    const confirmId = messages[msgIndex]?.confirmId
+    const realtimeResolver = confirmId ? pendingConfirmsRef.current.get(confirmId) : undefined
+    if (confirmId && realtimeResolver) {
+      pendingConfirmsRef.current.delete(confirmId)
       realtimeResolver(false)
       return
     }
     setMessages(prev => prev.map((m, i) => i === msgIndex ? { ...m, actionStatus: 'cancelled' as const } : m))
-  }, [])
+  }, [messages])
 
   const clearChat = useCallback(() => {
     disconnectVoice()
