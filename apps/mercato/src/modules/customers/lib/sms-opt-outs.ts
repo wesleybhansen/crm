@@ -47,7 +47,7 @@ export const TWILIO_UNSUBSCRIBED_ERROR_CODE = 21610
 
 /** A sequence stopped at a text step (shown on the enrollment). */
 export const SMS_OPTED_OUT_STOP_REASON =
-  'Stopped: this person opted out of your texts (they replied STOP), so this sequence sends them nothing more.'
+  'Stopped: this person opted out of your texts, so this sequence sends them nothing more.'
 /** The opt-out list could not be read, so nothing was sent. */
 export const SMS_OPT_OUT_CHECK_FAILED_REASON =
   'Not sent: the text opt-out list could not be checked. It is tried again shortly.'
