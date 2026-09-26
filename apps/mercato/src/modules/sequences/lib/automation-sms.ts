@@ -6,8 +6,9 @@ import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretC
 import { buildSenderContext, recordReviewRequest, requiresReviewUrl, substituteTemplateVars } from './template-vars'
 
 /*
- * The "Send SMS" automation action. It used to write a log line and report
- * success without sending anything. Now it texts the contact from the
+ * The "Send SMS" automation action, and the sequence "Send SMS" step
+ * (./sms-step.ts). Both used to write a log line and report success without
+ * sending anything. Now it texts the contact from the
  * business's OWN Twilio connection (twilio_connections: their account, their
  * number), never a Noli number. Without a connected Twilio account the action
  * is SKIPPED with a reason the owner sees in the rule's run history.
@@ -44,13 +45,14 @@ export async function sendAutomationSms(
 
   const connection = await knex('twilio_connections')
     .where('organization_id', scope.organizationId)
+    .where('tenant_id', scope.tenantId)
     .where('is_active', true)
     .first()
   if (!connection) {
     return {
       success: false,
       skipped: true,
-      detail: 'Skipped: no Twilio account is connected. Connect your own Twilio number in Settings and texts from this automation will send.',
+      detail: 'Skipped: no Twilio account is connected. Connect your own Twilio number on the SMS (Twilio) card in Settings and these texts will send.',
     }
   }
   const fromNumber = normalizePhone(connection.phone_number)
@@ -61,6 +63,7 @@ export async function sendAutomationSms(
   const contact = await knex('customer_entities')
     .where('id', input.contactId)
     .where('organization_id', scope.organizationId)
+    .where('tenant_id', scope.tenantId)
     .whereNull('deleted_at')
     .first('id', 'primary_phone', 'display_name')
   if (contact) {

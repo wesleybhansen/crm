@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -168,10 +169,15 @@ const personCrudEvents: CrudEventsConfig = {
   module: 'customers',
   entity: 'person',
   persistent: true,
+  // eventId names this one change. A persistent event reaches a subscriber
+  // twice (in process at emit, then from the queue), so exactly-once
+  // listeners such as the "Contact Updated" automation trigger key on it:
+  // both deliveries of one save share it, the next save gets a new one.
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    eventId: randomUUID(),
   }),
 }
 

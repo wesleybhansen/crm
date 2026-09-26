@@ -6,6 +6,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '../../../email/lib/email-router'
 import { hasSendingSetup } from '../../../email/lib/routing-service'
 import { runSequenceEmailStep } from '../../lib/email-step'
+import { runSequenceSmsStep } from '../../lib/sms-step'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 
@@ -222,12 +223,22 @@ export async function POST(req: Request) {
             continue
           }
         } else if (step.step_type === 'sms') {
-          console.log(`[sequences.process] SMS step logged for contact ${execution.contact_id}: ${JSON.stringify(config)}`)
-          await knex('sequence_step_executions').where('id', execution.execution_id).update({
-            status: 'executed',
-            result: JSON.stringify({ logged: true, note: 'SMS step logged, integration not wired' }),
-            executed_at: now,
+          // Sent from the business's own Twilio number, like the automation
+          // "Send SMS" action. No Twilio connected (or no mobile number) is a
+          // skip with the reason on the step, and the enrollment moves on; a
+          // failed send stops the enrollment, as a failed email does.
+          const outcome = await runSequenceSmsStep(knex, {
+            executionId: execution.execution_id,
+            organizationId: execution.organization_id,
+            tenantId: execution.tenant_id,
+            contactId: execution.contact_id,
+            message: config.message,
           })
+          if (outcome === 'failed') {
+            await markEnrollmentFailed(knex, execution.enrollment_id)
+            processed++
+            continue
+          }
         } else if (step.step_type === 'wait') {
           await knex('sequence_step_executions').where('id', execution.execution_id).update({
             status: 'executed',

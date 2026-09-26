@@ -35,6 +35,7 @@ type Enrollment = {
   id: string; contact_id: string; display_name: string; primary_email: string
   status: string; current_step_order: number; enrolled_at: string
   waiting_reason?: string | null
+  skipped_reason?: string | null
 }
 
 const TRIGGER_TYPES = [
@@ -1086,14 +1087,17 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
           ) : (
             <div className="divide-y">
               {enrollments.map(enr => (
-                <div key={enr.id} className="flex items-center gap-3 px-4 py-3">
+                <div key={enr.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">{enr.display_name || 'Unknown'}</p>
-                    <p className="text-xs text-muted-foreground">{enr.primary_email || ''}</p>
-                    {enr.waiting_reason && (
-                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">{enr.waiting_reason}</p>
-                    )}
+                    <p className="text-sm font-medium truncate">{enr.display_name || 'Unknown'}</p>
+                    <p className="text-xs text-muted-foreground truncate">{enr.primary_email || ''}</p>
                   </div>
+                  {/* Full width under the row, so a long reason never squeezes into a narrow column on a phone. */}
+                  {(enr.waiting_reason || enr.skipped_reason) && (
+                    <p className="order-last basis-full text-xs text-amber-700 dark:text-amber-300 break-words">
+                      {enr.waiting_reason || enr.skipped_reason}
+                    </p>
+                  )}
                   <Badge variant={statusVariant[enr.status] || 'secondary'}>{enr.status}</Badge>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     Step {enr.current_step_order}

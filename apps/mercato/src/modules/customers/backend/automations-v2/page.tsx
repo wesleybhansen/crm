@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import SequencesPage from '@/modules/sequences/backend/sequences/page'
 import { automationStatusHint, initialAutomationStatus } from '@/modules/sequences/lib/automation-status'
+import { WebhookSigningPanel } from '@/components/WebhookSigningPanel'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -717,6 +718,7 @@ function TriggerConfigFields({ triggerType, config, onChange }: {
   const tags = useFetchOptions((triggerType === 'tag_added' || triggerType === 'tag_removed') ? '/api/crm-contact-tags' : null)
   const forms = useFetchOptions(triggerType === 'form_submitted' ? '/api/forms?pageSize=50' : null)
   const stages = useFetchOptions(triggerType === 'stage_change' ? '/api/business-profile' : null)
+  const courses = useFetchOptions(triggerType === 'course_enrolled' ? '/api/courses' : null)
 
   switch (triggerType) {
     case 'contact_created':
@@ -761,10 +763,21 @@ function TriggerConfigFields({ triggerType, config, onChange }: {
       )
     case 'deal_created': case 'deal_won': case 'deal_lost':
       return null
+    case 'course_enrolled':
+      return (
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground block mb-1">Course (optional)</label>
+          <select value={config.courseId ?? ''} onChange={event => update('courseId', event.target.value)}
+            className="w-full h-9 rounded-md border bg-background px-3 text-sm">
+            <option value="">Any course</option>
+            {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      )
     case 'invoice_overdue':
       return (
         <div>
-          <label className="text-[11px] font-medium text-muted-foreground block mb-1">Days overdue (optional)<InfoTip text="Trigger after this many days past due date. Leave empty for any overdue invoice." /></label>
+          <label className="text-[11px] font-medium text-muted-foreground block mb-1">Days overdue (optional)<InfoTip text="Runs once per unpaid invoice, this many days after its due date. Leave empty to run the day after it is due." /></label>
           <Input type="number" value={config.daysOverdue ?? ''} onChange={event => update('daysOverdue', event.target.value ? parseInt(event.target.value) : undefined)}
             placeholder="e.g. 7" className="h-9 text-sm w-24" />
         </div>
@@ -963,19 +976,12 @@ function ActionConfigFields({ actionType, config, onChange }: {
       return (
         <div className="space-y-3">
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground block mb-1">URL<InfoTip text="The external URL to send event data to via HTTP POST" /></label>
+            <label className="text-[11px] font-medium text-muted-foreground block mb-1">URL<InfoTip text="Noli sends the event here as a signed HTTP POST with a JSON body" /></label>
             <Input value={config.url ?? ''} onChange={event => update('url', event.target.value)}
               placeholder="https://example.com/webhook" className="h-9 text-sm" />
+            <p className="text-[11px] text-muted-foreground mt-1">Sent as a POST with a JSON body. The address must be public (https:// recommended).</p>
           </div>
-          <div>
-            <label className="text-[11px] font-medium text-muted-foreground block mb-1">Method</label>
-            <select value={config.method ?? 'POST'} onChange={event => update('method', event.target.value)}
-              className="w-full h-9 rounded-md border bg-background px-3 text-sm">
-              <option value="POST">POST</option>
-              <option value="PUT">PUT</option>
-              <option value="GET">GET</option>
-            </select>
-          </div>
+          <WebhookSigningPanel />
         </div>
       )
     case 'add_to_list':

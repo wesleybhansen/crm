@@ -37,7 +37,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
-import { emitDealClosedIfTransitioned } from '../lib/dealClosed'
+import { emitDealClosedIfTransitioned, emitDealLostIfTransitioned } from '../lib/dealClosed'
 import { DEAL_STATUS_OPEN, canonicalDealStatus, dealStatusOutcome, statusForStageMove } from '../lib/dealStatus'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
@@ -406,6 +406,13 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       eventBus = null
     }
     await emitDealClosedIfTransitioned(eventBus as Parameters<typeof emitDealClosedIfTransitioned>[0], {
+      id: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      before: { status: previousStatus, pipelineStage: previousPipelineStage },
+      after: { status: record.status, pipelineStage: record.pipelineStage ?? null },
+    })
+    await emitDealLostIfTransitioned(eventBus as Parameters<typeof emitDealLostIfTransitioned>[0], {
       id: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,

@@ -14,7 +14,7 @@ Secrets are never in these files. The wrappers read `/root/crm-cron/secrets.env`
 | every 5 min | `outbound-events-drain.sh` | `POST /api/internal/outbound-events/drain` (closed deals and journey closings to the marketing app, retries) |
 | every 5 min | `booking-reminders.sh` | `POST /api/calendar/reminders` (booking reminders, once per booking and window) |
 | every 5 min | `event-reminders.sh` | `POST /api/crm-events/reminders` (event reminders, once per attendee and window) |
-| every 10 min | `automation-rules.sh` | `POST /api/sequences/automation-rules/run-scheduled` (scheduled automations, then delayed automation steps) |
+| every 10 min | `automation-rules.sh` | `POST /api/sequences/automation-rules/run-scheduled` (scheduled automations, delayed automation steps, then "Invoice Overdue" automations for newly overdue invoices) |
 | every 15 min | `ai-customer-service.sh` | `POST /api/customer-service/process` (support inboxes: drafts, promises, alerts) |
 | every 15 min | `ai-inbox.sh` | `POST /api/inbox/process` (personal Inbox drafts) |
 | every 15 min | `personal-inbox-sync.sh` | `POST /api/internal/personal-inbox-sync` (service secret) |

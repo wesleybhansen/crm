@@ -71,19 +71,37 @@ function world(rules: Rule[], extra: Record<string, Array<Record<string, unknown
 const scope = { organizationId: ORG, tenantId: TENANT }
 
 describe('automation triggers fire once per event', () => {
-  it('deal won: a "review request at closing" rule runs once per closed deal', async () => {
+  it('deal won: a "review request at closing" rule runs once per win, never twice for one event', async () => {
     const { knex, ctx } = world([
       { trigger_type: 'deal_won', action_type: 'create_task', action_config: { taskTitle: 'Ask for a review' }, conditions: [{ field: 'stage', operator: 'eq', value: 'won' }] },
     ])
     const payload = { id: DEAL, ...scope, closedAt: '2026-09-28T17:00:00.000Z', stage: 'Closed', status: 'open' }
+    // The same event twice: the in-process delivery, then the queued copy (or a retry).
     await dealClosed(payload, ctx)
     await dealClosed(payload, ctx)
-    await dealClosed({ ...payload, closedAt: '2026-09-29T09:00:00.000Z' }, ctx)
 
     expect(knex.db.tables.tasks).toHaveLength(1)
     expect(knex.db.tables.tasks[0]).toMatchObject({ title: 'Ask for a review', contact_id: CONTACT, deal_id: DEAL, organization_id: ORG })
     expect(knex.db.tables.automation_rule_logs).toHaveLength(1)
     expect(knex.db.tables.automation_rule_logs[0]).toMatchObject({ rule_id: 'rule-1', status: 'executed', contact_id: CONTACT })
+  })
+
+  it('deal won: reopened and won again fires again (each win is its own closedAt)', async () => {
+    const { knex, ctx } = world([
+      { trigger_type: 'deal_won', action_type: 'create_task', action_config: { taskTitle: 'Ask for a review' } },
+    ])
+    const firstWin = { id: DEAL, ...scope, closedAt: '2026-09-28T17:00:00.000Z', stage: 'Closed', status: 'win' }
+    const reWin = { ...firstWin, closedAt: '2026-10-04T09:30:00.000Z' }
+    await dealClosed(firstWin, ctx)
+    await dealClosed(reWin, ctx)
+    await dealClosed(reWin, ctx)
+    await dealClosed(firstWin, ctx)
+
+    expect(knex.db.tables.tasks).toHaveLength(2)
+    expect(knex.db.tables.automation_trigger_dispatches.map((row: { event_key: string }) => row.event_key)).toEqual([
+      `deal:${DEAL}:won:2026-09-28T17:00:00.000Z`,
+      `deal:${DEAL}:won:2026-10-04T09:30:00.000Z`,
+    ])
   })
 
   it('deal stage change: fires once per move, matches the target stage, ignores replays', async () => {

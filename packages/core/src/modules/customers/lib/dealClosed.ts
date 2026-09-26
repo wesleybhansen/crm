@@ -1,6 +1,6 @@
 /**
- * When a deal counts as closed (won), and the one event that says it just
- * became so.
+ * When a deal counts as closed (won) or lost, and the one event that says it
+ * just became so (`customers.deal.closed`, `customers.deal.lost`).
  *
  * Deals close three ways: the deal form / API (customers.deals.update), a drag
  * into a won-named column on the pipeline board (PUT /api/ext/deals) and a
@@ -65,6 +65,22 @@ export function isDealClosedTransition(before: DealCloseState | null | undefined
 }
 
 /**
+ * True when the deal is lost: a lost status ('lost', legacy 'loose'/'lose',
+ * 'Closed Lost') or a lost-looking stage ("Lost", "Closed Lost", "Fell
+ * through", "Cancelled"). Never true for a deal isDealClosedWon counts won.
+ */
+export function isDealLost(deal: DealCloseState | null | undefined): boolean {
+  if (!deal) return false
+  const status = normalize(deal.status)
+  const stage = normalize(deal.pipelineStage)
+  return LOST_STATUSES.has(status) || LOST_WORDS.test(stage) || LOST_WORDS.test(status)
+}
+
+export function isDealLostTransition(before: DealCloseState | null | undefined, after: DealCloseState | null | undefined): boolean {
+  return !isDealLost(before) && isDealLost(after)
+}
+
+/**
  * Emit `customers.deal.closed` when the write moved the deal into a won/closed
  * state. Never throws: a failed emit must not fail the deal update. Returns
  * whether an event was emitted.
@@ -92,6 +108,52 @@ export async function emitDealClosedIfTransitioned(
   }
   try {
     await bus.emitEvent(DEAL_CLOSED_EVENT_ID, payload, { persistent: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export const DEAL_LOST_EVENT_ID = 'customers.deal.lost' as const
+
+export type DealLostEventPayload = {
+  id: string
+  organizationId: string
+  tenantId: string
+  lostAt: string
+  status: string | null
+  stage: string | null
+}
+
+/**
+ * Emit `customers.deal.lost` when the write moved the deal into a lost status
+ * or stage. Same three call sites and the same rules as the closed event: one
+ * event per transition (lost, reopened and lost again is a second one), never
+ * one per later edit of a deal that was already lost. Never throws.
+ */
+export async function emitDealLostIfTransitioned(
+  bus: EventBusLike,
+  args: {
+    id: string
+    organizationId: string
+    tenantId: string
+    before: DealCloseState | null | undefined
+    after: DealCloseState
+    lostAt?: Date
+  },
+): Promise<boolean> {
+  if (!isDealLostTransition(args.before, args.after)) return false
+  if (!bus?.emitEvent) return false
+  const payload: DealLostEventPayload = {
+    id: args.id,
+    organizationId: args.organizationId,
+    tenantId: args.tenantId,
+    lostAt: (args.lostAt ?? new Date()).toISOString(),
+    status: args.after.status ?? null,
+    stage: args.after.pipelineStage ?? null,
+  }
+  try {
+    await bus.emitEvent(DEAL_LOST_EVENT_ID, payload, { persistent: true })
     return true
   } catch {
     return false

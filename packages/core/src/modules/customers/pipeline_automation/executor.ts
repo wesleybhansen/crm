@@ -3,7 +3,7 @@ import type { EntityType, ActionType } from './triggers'
 import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { emitDealClosedIfTransitioned } from '../lib/dealClosed'
+import { emitDealClosedIfTransitioned, emitDealLostIfTransitioned } from '../lib/dealClosed'
 import { statusForStageMove } from '../lib/dealStatus'
 
 export type PipelineAutomationRunOutcome =
@@ -198,6 +198,13 @@ export async function applyDealAction(
       stage: stageRow?.name ?? null,
     }, { persistent: true }).catch(() => {})
     await emitDealClosedIfTransitioned(ctx.bus, {
+      id: args.dealId,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      before: { status: deal.status ?? null, pipelineStage: deal.pipeline_stage ?? null },
+      after: { status: nextStatus, pipelineStage: stageRow?.name ?? null },
+    })
+    await emitDealLostIfTransitioned(ctx.bus, {
       id: args.dealId,
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,

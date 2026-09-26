@@ -167,6 +167,23 @@ export async function POST(req: Request) {
       } catch {}
     }
 
+    // "Course Enrolled" automations and course-enrollment sequences, once per
+    // enrollment (the paid paths in the Stripe webhook do the same).
+    try {
+      const { dispatchCourseEnrolled } = await import('@/modules/sequences/lib/automation-dispatch')
+      await dispatchCourseEnrolled(knex, {
+        organizationId: course.organization_id,
+        tenantId: course.tenant_id,
+        enrollmentId: id,
+        courseId: course.id,
+        contactId,
+        courseTitle: course.title ?? null,
+        paid: false,
+      })
+    } catch (err) {
+      console.error('[courses.enrollments] course_enrolled automations failed (non-fatal)', err)
+    }
+
     // "You're enrolled!" email with a magic link for instant access. Same
     // email and once-per-enrollment guard as the paid path (Stripe webhook).
     try {
