@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findContactByPhone } from '@/modules/customers/lib/dedup'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { findBusyConflict, loadCrmBusyIntervals, lockOrganizationBookings } from '../../../../calendar/lib/booking-availability'
 
 /* Internal receptionist endpoint for the Noli AI Receptionist (phone answering).
  *
@@ -168,16 +169,13 @@ export async function POST(req: Request) {
       const leadMs = 2 * 60 * 60 * 1000 // never offer a slot less than 2h out
       const horizon = new Date(now.getTime() + days * 86_400_000)
 
-      const busy: Array<{ start: Date; end: Date }> = (
-        await knex('bookings')
-          .where('booking_page_id', page.id)
-          .where('status', 'confirmed')
-          .where('end_time', '>', now)
-          .where('start_time', '<', horizon)
-          .select('start_time', 'end_time')
-      ).map((b: { start_time: string; end_time: string }) => ({
-        start: new Date(b.start_time),
-        end: new Date(b.end_time),
+      // The CRM's own calendar always counts (confirmed and pending bookings,
+      // blocked time, manual events), same rule as the public booking page.
+      // One extra day: the slot loop below also walks the horizon's own day.
+      const busyUntil = new Date(horizon.getTime() + 86_400_000)
+      const busy: Array<{ start: Date; end: Date }> = (await loadCrmBusyIntervals(knex, page, now, busyUntil)).map((b) => ({
+        start: new Date(b.start),
+        end: new Date(b.end),
       }))
       // Google Calendar busy times too, when connected (best-effort; a slow or
       // failed Google call must not stall the phone call).
@@ -273,15 +271,8 @@ export async function POST(req: Request) {
       const autoConfirm = page.auto_confirm !== false
       let slotTaken = false
       await knex.transaction(async (trx) => {
-        await trx('booking_pages').where('id', page.id).forUpdate().first()
-        const raceConflict = await trx('bookings')
-          .where('booking_page_id', page.id)
-          .where('status', 'confirmed')
-          .where(function () {
-            this.where('start_time', '<', end).andWhere('end_time', '>', start)
-          })
-          .first()
-        if (raceConflict) {
+        await lockOrganizationBookings(trx, page.organization_id)
+        if (findBusyConflict(await loadCrmBusyIntervals(trx, page, start, end), start, end)) {
           slotTaken = true
           return
         }

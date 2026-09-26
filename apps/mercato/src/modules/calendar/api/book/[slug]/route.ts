@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { loadCrmBusyIntervals, PUBLIC_BOOKING_CRM_HORIZON_DAYS, type BusyInterval } from '../../../lib/booking-availability'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -20,22 +21,16 @@ export async function GET(req: Request, ctx: any) {
     const page = await knex('booking_pages').where('slug', slug).where('is_active', true).first()
     if (!page) return new NextResponse('Booking page not found', { status: 404, headers: { 'Content-Type': 'text/html' } })
 
-    // Get existing bookings for next 14 days to show availability
+    // The CRM's own calendar always hides taken slots: confirmed and pending
+    // bookings, blocked time and manual events (lib/booking-availability.ts).
+    // Overlap with "now" so a block that already started still hides the
+    // rest of today.
     const now = new Date()
     const twoWeeksOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)
-    const existingBookings = await knex('bookings')
-      .where('booking_page_id', page.id)
-      .where('status', 'confirmed')
-      .where('start_time', '>=', now)
-      .where('start_time', '<=', twoWeeksOut)
-      .select('start_time', 'end_time')
+    const crmHorizon = new Date(now.getTime() + PUBLIC_BOOKING_CRM_HORIZON_DAYS * 24 * 60 * 60 * 1000)
+    let bookedSlots: BusyInterval[] = await loadCrmBusyIntervals(knex, page, now, crmHorizon)
 
-    let bookedSlots = existingBookings.map((b: any) => ({
-      start: new Date(b.start_time).toISOString(),
-      end: new Date(b.end_time).toISOString(),
-    }))
-
-    // Also get Google Calendar busy times if owner has connected
+    // Google Calendar busy times are an extra layer when the owner connected it.
     if (page.owner_user_id) {
       try {
         const { getGoogleBusyTimes } = await import('@/modules/calendar/lib/google-calendar-service')
