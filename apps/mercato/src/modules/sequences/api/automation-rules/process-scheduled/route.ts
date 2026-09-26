@@ -19,7 +19,7 @@ export async function POST() {
 
     // A signed-in user runs their own organization's due steps only; the box
     // cron runs everyone's through run-scheduled with the service token.
-    const result = await processScheduledSteps(knex, { organizationId: auth.orgId })
+    const result = await processScheduledSteps(knex, { organizationId: auth.orgId, tenantId: auth.tenantId })
 
     return NextResponse.json({ ok: true, data: result })
   } catch (error) {

@@ -24,8 +24,8 @@ import { checkSequenceTriggers } from '../services/sequence-triggers'
  * Relative imports only: subscribers are bundled into the queue workers.
  */
 
-export type AutomationTriggerType = 'deal_won' | 'stage_change' | 'invoice_paid' | 'booking_created'
-export type SequenceTriggerType = 'deal_stage_changed' | 'invoice_paid' | 'booking_created'
+export type AutomationTriggerType = 'deal_won' | 'stage_change' | 'invoice_paid' | 'booking_created' | 'contact_created'
+export type SequenceTriggerType = 'deal_stage_changed' | 'deal_won' | 'invoice_paid' | 'booking_created' | 'contact_created'
 
 export type AutomationDispatchInput = {
   organizationId: string
@@ -33,12 +33,19 @@ export type AutomationDispatchInput = {
   triggerType: AutomationTriggerType
   eventKey: string
   context: Record<string, unknown> & { contactId?: string | null }
-  sequenceTrigger?: { type: SequenceTriggerType; stage?: string | null } | null
+  sequenceTrigger?: {
+    type: SequenceTriggerType
+    stage?: string | null
+    bookingPageId?: string | null
+    source?: string | null
+  } | null
 }
+
+type SequenceContext = { contactId: string; stage?: string; bookingPageId?: string; source?: string }
 
 export type AutomationDispatchDeps = {
   executeRules?: (knex: Knex, orgId: string, tenantId: string, triggerType: string, context: Record<string, unknown>) => Promise<unknown>
-  checkSequences?: (knex: Knex, orgId: string, tenantId: string, triggerType: string, context: { contactId: string; stage?: string }) => Promise<unknown>
+  checkSequences?: (knex: Knex, orgId: string, tenantId: string, triggerType: string, context: SequenceContext) => Promise<unknown>
   now?: () => Date
 }
 
@@ -78,12 +85,65 @@ export async function dispatchAutomationTrigger(
   await executeRules(knex, input.organizationId, input.tenantId, input.triggerType, context)
   const contactId = typeof input.context.contactId === 'string' && input.context.contactId ? input.context.contactId : null
   if (input.sequenceTrigger && contactId) {
+    const { stage, bookingPageId, source } = input.sequenceTrigger
     await checkSequences(knex, input.organizationId, input.tenantId, input.sequenceTrigger.type, {
       contactId,
-      ...(input.sequenceTrigger.stage ? { stage: input.sequenceTrigger.stage } : {}),
+      ...(stage ? { stage } : {}),
+      ...(bookingPageId ? { bookingPageId } : {}),
+      ...(source ? { source } : {}),
     })
   }
   return { dispatched: true }
+}
+
+/**
+ * A new contact: run `contact_created` rules and contact-created sequences,
+ * once per contact whatever the path. Manual adds, the people API and inbox
+ * actions arrive through the customers.person.created subscriber; the import,
+ * form and landing page routes (which write contacts without that event) call
+ * this directly. Both claim the same key, so no contact is welcomed twice.
+ */
+export async function dispatchContactCreated(
+  knex: Knex,
+  input: { organizationId: string; tenantId: string; contactId: string; source?: string | null; context?: Record<string, unknown> },
+  deps: AutomationDispatchDeps = {},
+): Promise<{ dispatched: boolean }> {
+  const source = typeof input.source === 'string' && input.source ? input.source : null
+  return dispatchAutomationTrigger(knex, {
+    organizationId: input.organizationId,
+    tenantId: input.tenantId,
+    triggerType: 'contact_created',
+    eventKey: `contact:${input.contactId}`,
+    context: { ...(input.context ?? {}), contactId: input.contactId, source },
+    sequenceTrigger: { type: 'contact_created', source },
+  }, deps)
+}
+
+/**
+ * The person behind a customers.person.created event. The create command
+ * emits the person PROFILE id (customer_people.id), not the contact id; older
+ * emitters used the entity id, so both are accepted.
+ */
+export async function loadCreatedPersonContext(
+  knex: Knex,
+  scope: { organizationId: string; tenantId: string },
+  personOrEntityId: string,
+): Promise<{ contactId: string; source: string | null } | null> {
+  const profile = await knex('customer_people')
+    .where('id', personOrEntityId)
+    .where('organization_id', scope.organizationId)
+    .where('tenant_id', scope.tenantId)
+    .first('entity_id')
+  const entityId = profile?.entity_id ?? personOrEntityId
+  const entity = await knex('customer_entities')
+    .where('id', entityId)
+    .where('organization_id', scope.organizationId)
+    .where('tenant_id', scope.tenantId)
+    .whereNull('deleted_at')
+    .first('id', 'kind', 'source')
+  if (!entity) return null
+  if (entity.kind && entity.kind !== 'person') return null
+  return { contactId: entity.id, source: typeof entity.source === 'string' && entity.source ? entity.source : null }
 }
 
 /** Minute-wide key part for events that carry no timestamp of their own. */

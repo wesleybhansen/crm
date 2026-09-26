@@ -9,6 +9,7 @@ import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
 import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-triggers'
+import { dispatchContactCreated } from '@/modules/sequences/lib/automation-dispatch'
 import { isValidEmail, summarizeFormSubmission, validateFormSubmission } from '../../../../lib/submission'
 
 const CORS_HEADERS = {
@@ -235,8 +236,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           }).catch(() => {})
         }
         if (contactId && !existing) {
-          executeAutomationRules(knex, form.organization_id, form.tenant_id, 'contact_created', {
-            contactId, source: 'form',
+          // "Contact created" automations and sequences, once per contact
+          dispatchContactCreated(knex, {
+            organizationId: form.organization_id, tenantId: form.tenant_id, contactId, source: 'form',
           }).catch(() => {})
         }
 

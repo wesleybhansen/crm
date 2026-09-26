@@ -8,80 +8,63 @@ import {
   requiresReviewUrl,
   substituteTemplateVars,
 } from './template-vars'
+import { matchesTriggerConfig } from './automation-trigger-match'
+import { conditionContext, conditionsNeedContact, evaluateConditions, parseConditions } from './automation-conditions'
+import { loadContactFacts, type ContactFacts } from './automation-contact-facts'
 
 /**
  * Automation Rules Executor
  *
  * Executes matching automation rules for a given trigger type.
  * Called fire-and-forget from various routes (form submissions, tag assignments, etc.)
- * and, for deal won / stage change / invoice paid / booking created, from the
- * event subscribers through automation-dispatch.ts (once per event).
+ * and, for deal won / stage change / invoice paid / booking created / contact
+ * created, from the event subscribers through automation-dispatch.ts (once per event).
  *
  * Relative imports only: the dispatch subscribers are bundled into the queue workers.
  */
 
 type ActionResult = { success: boolean; skipped?: boolean; detail?: string; error?: string }
 
-function normalizeStage(value: unknown): string {
-  return String(value ?? '').trim().toLowerCase()
+/** What one step of a run did, for the run history and the Test panel. */
+export type AutomationStepRun = {
+  index: number
+  type: 'action' | 'delay'
+  actionType?: string
+  status: 'executed' | 'skipped' | 'failed' | 'scheduled'
+  detail?: string
+  executeAt?: string
 }
 
-// ---------------------------------------------------------------------------
-// Condition Evaluation
-// ---------------------------------------------------------------------------
+type Scope = { organizationId: string; tenantId: string }
 
-function getNestedValue(obj: Record<string, any>, path: string): any {
-  return path.split('.').reduce((o, k) => o?.[k], obj)
-}
-
-function evaluateConditions(
-  conditions: Array<{ field: string; operator: string; value?: any }> | null,
-  context: Record<string, any>
-): { pass: boolean; reason?: string } {
-  if (!conditions || conditions.length === 0) return { pass: true }
-
-  for (const c of conditions) {
-    const fieldValue = getNestedValue(context, c.field)
-    let passes = false
-
-    switch (c.operator) {
-      case 'eq':
-        passes = fieldValue === c.value
-        break
-      case 'neq':
-        passes = fieldValue !== c.value
-        break
-      case 'gt':
-        passes = Number(fieldValue) > Number(c.value)
-        break
-      case 'gte':
-        passes = Number(fieldValue) >= Number(c.value)
-        break
-      case 'lt':
-        passes = Number(fieldValue) < Number(c.value)
-        break
-      case 'lte':
-        passes = Number(fieldValue) <= Number(c.value)
-        break
-      case 'contains':
-        passes = String(fieldValue || '').toLowerCase().includes(String(c.value || '').toLowerCase())
-        break
-      case 'exists':
-        passes = fieldValue !== undefined && fieldValue !== null && fieldValue !== ''
-        break
-      case 'notExists':
-        passes = fieldValue === undefined || fieldValue === null || fieldValue === ''
-        break
-      default:
-        passes = true
-    }
-
-    if (!passes) {
-      return { pass: false, reason: `${c.field} ${c.operator} ${c.value} failed (got: ${fieldValue})` }
-    }
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (value == null || value === '') return fallback
+  if (typeof value !== 'string') return value as T
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
   }
+}
 
-  return { pass: true }
+/** skipped when the action said so, failed when it did not succeed, else executed. */
+function actionStatus(result: ActionResult): 'executed' | 'skipped' | 'failed' {
+  if (result.skipped) return 'skipped'
+  return result.success ? 'executed' : 'failed'
+}
+
+async function writeRunLog(knex: any, row: { ruleId: string | null; contactId: unknown; triggerData: Record<string, unknown>; result: Record<string, unknown>; status: string }) {
+  await knex('automation_rule_logs').insert({
+    id: require('crypto').randomUUID(),
+    rule_id: row.ruleId,
+    contact_id: typeof row.contactId === 'string' && row.contactId ? row.contactId : null,
+    trigger_data: JSON.stringify(row.triggerData),
+    action_result: JSON.stringify(row.result),
+    status: row.status,
+    created_at: new Date(),
+  }).catch((logErr: any) => {
+    console.error('[automation-rules] Failed to log execution:', logErr)
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -93,129 +76,144 @@ export async function executeAutomationRules(
   orgId: string,
   tenantId: string,
   triggerType: string,
-  context: { contactId?: string; tagSlug?: string; tagName?: string; formId?: string; dealId?: string; [key: string]: any }
+  context: { contactId?: string; tagId?: string; tagSlug?: string; tagName?: string; formId?: string; dealId?: string; [key: string]: any }
 ) {
+  let rules: any[]
   try {
-    const rules = await knex('automation_rules')
+    rules = await knex('automation_rules')
       .where('organization_id', orgId)
+      .where('tenant_id', tenantId)
       .where('trigger_type', triggerType)
       .where('is_active', true)
+  } catch (err) {
+    console.error('[automation-rules] Error loading rules:', err)
+    return
+  }
 
-    for (const rule of rules) {
-      const triggerConfig = typeof rule.trigger_config === 'string'
-        ? JSON.parse(rule.trigger_config)
-        : (rule.trigger_config || {})
-      const actionConfig = typeof rule.action_config === 'string'
-        ? JSON.parse(rule.action_config)
-        : (rule.action_config || {})
+  // The contact's own fields, loaded once and only when a condition needs one.
+  let facts: ContactFacts | null | undefined
+  const contactFacts = async () => {
+    if (facts === undefined) {
+      facts = await loadContactFacts(knex, { organizationId: orgId, tenantId }, context.contactId).catch((err) => {
+        console.error('[automation-rules] Failed to load contact fields for conditions:', err)
+        return null
+      })
+    }
+    return facts
+  }
+
+  // One rule failing (a bad config, a missing table) never stops the others.
+  for (const rule of rules) {
+    try {
+      const triggerConfig = parseJson<Record<string, any>>(rule.trigger_config, {})
 
       // Check if trigger_config matches the context
       if (!matchesTriggerConfig(triggerType, triggerConfig, context)) continue
 
       // Evaluate rule conditions
-      const conditions = typeof rule.conditions === 'string'
-        ? JSON.parse(rule.conditions)
-        : rule.conditions
-      const conditionResult = evaluateConditions(conditions, context)
-      if (!conditionResult.pass) {
-        await knex('automation_rule_logs').insert({
-          id: require('crypto').randomUUID(),
-          rule_id: rule.id,
-          contact_id: context.contactId || null,
-          trigger_data: JSON.stringify({ triggerType, ...context }),
-          action_result: JSON.stringify({ skipped: true, reason: conditionResult.reason }),
-          status: 'skipped',
-          created_at: new Date(),
-        }).catch((logErr: any) => {
-          console.error('[automation-rules] Failed to log skipped execution:', logErr)
-        })
-        continue
-      }
-
-      // Check if rule has multi-step automation
-      const steps = typeof rule.steps === 'string' ? JSON.parse(rule.steps) : rule.steps
-
-      if (Array.isArray(steps) && steps.length > 0) {
-        // Multi-step execution
-        await executeSteps(knex, orgId, tenantId, rule, steps, 0, context)
-      } else {
-        // Legacy single-action execution
-        let actionResult: ActionResult = { success: false }
-        let status = 'executed'
-
-        try {
-          actionResult = await executeAction(knex, orgId, tenantId, rule.action_type, actionConfig, { ...context, ruleId: rule.id })
-          if (actionResult.skipped) status = 'skipped'
-        } catch (err) {
-          status = 'failed'
-          actionResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
-          console.error(`[automation-rules] Action failed for rule ${rule.id}:`, err)
+      const conditions = parseConditions(rule.conditions)
+      if (conditions.length > 0) {
+        const evalContext = conditionsNeedContact(conditions, context)
+          ? conditionContext(context, await contactFacts())
+          : context
+        const conditionResult = evaluateConditions(conditions, evalContext)
+        if (!conditionResult.pass) {
+          if (conditionResult.results.some((r) => r.error)) {
+            console.warn(`[automation-rules] Rule ${rule.id} skipped: ${conditionResult.reason}`)
+          }
+          await writeRunLog(knex, {
+            ruleId: rule.id,
+            contactId: context.contactId,
+            triggerData: { triggerType, ...context },
+            result: { skipped: true, reason: conditionResult.reason },
+            status: 'skipped',
+          })
+          continue
         }
-
-        // Log execution
-        await knex('automation_rule_logs').insert({
-          id: require('crypto').randomUUID(),
-          rule_id: rule.id,
-          contact_id: context.contactId || null,
-          trigger_data: JSON.stringify({ triggerType, ...context }),
-          action_result: JSON.stringify(actionResult),
-          status,
-          created_at: new Date(),
-        }).catch((logErr: any) => {
-          console.error('[automation-rules] Failed to log execution:', logErr)
-        })
       }
+
+      await runRuleSteps(knex, { organizationId: orgId, tenantId }, rule, { ...context, triggerType: context.triggerType ?? triggerType })
+    } catch (err) {
+      console.error(`[automation-rules] Rule ${rule?.id} failed:`, err)
+      await writeRunLog(knex, {
+        ruleId: rule?.id ?? null,
+        contactId: context.contactId,
+        triggerData: { triggerType, ...context },
+        result: { success: false, error: err instanceof Error ? err.message : 'Unknown error' },
+        status: 'failed',
+      })
     }
-  } catch (err) {
-    console.error('[automation-rules] Error executing rules:', err)
   }
 }
 
-function matchesTriggerConfig(
-  triggerType: string,
-  triggerConfig: Record<string, any>,
-  context: Record<string, any>
-): boolean {
-  // If no trigger_config constraints, match all events of this type
-  if (!triggerConfig || Object.keys(triggerConfig).length === 0) return true
-
-  switch (triggerType) {
-    case 'tag_added':
-    case 'tag_removed':
-      if (triggerConfig.tagSlug && triggerConfig.tagSlug !== context.tagSlug) return false
-      if (triggerConfig.tagName && triggerConfig.tagName !== context.tagName) return false
-      return true
-
-    case 'form_submitted':
-      if (triggerConfig.formId && triggerConfig.formId !== context.formId) return false
-      if (triggerConfig.landingPageSlug && triggerConfig.landingPageSlug !== context.landingPageSlug) return false
-      return true
-
-    case 'deal_won':
-    case 'deal_lost':
-      if (triggerConfig.pipelineId && triggerConfig.pipelineId !== context.pipelineId) return false
-      return true
-
-    case 'contact_created':
-      if (triggerConfig.source && triggerConfig.source !== context.source) return false
-      return true
-
-    case 'stage_change': {
-      // `stage` is the journey-board spelling of `toStage`; names match case-insensitively.
-      const wantTo = triggerConfig.toStage ?? triggerConfig.stage
-      if (triggerConfig.fromStage && normalizeStage(triggerConfig.fromStage) !== normalizeStage(context.fromStage)) return false
-      if (wantTo && normalizeStage(wantTo) !== normalizeStage(context.toStage)) return false
-      return true
-    }
-
-    case 'invoice_paid':
-    case 'booking_created':
-    case 'course_enrolled':
-      return true
-
-    default:
-      return true
+/** Run a rule's steps (or its legacy single action) for one context; logs each step. */
+async function runRuleSteps(
+  knex: any,
+  scope: Scope,
+  rule: any,
+  context: Record<string, any>,
+): Promise<AutomationStepRun[]> {
+  const steps = parseJson<unknown>(rule.steps, null)
+  if (Array.isArray(steps) && steps.length > 0) {
+    return executeSteps(knex, scope.organizationId, scope.tenantId, rule, steps, 0, context)
   }
+
+  // Legacy single-action execution
+  const actionConfig = parseJson<Record<string, any>>(rule.action_config, {})
+  let actionResult: ActionResult = { success: false }
+  let status: AutomationStepRun['status']
+  try {
+    actionResult = await executeAction(knex, scope.organizationId, scope.tenantId, rule.action_type, actionConfig, { ...context, ruleId: rule.id })
+    status = actionStatus(actionResult)
+  } catch (err) {
+    status = 'failed'
+    actionResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    console.error(`[automation-rules] Action failed for rule ${rule.id}:`, err)
+  }
+  await writeRunLog(knex, {
+    ruleId: rule.id,
+    contactId: context.contactId,
+    triggerData: { ...context },
+    result: actionResult,
+    status,
+  })
+  return [{ index: 0, type: 'action', actionType: rule.action_type, status, detail: actionResult.detail ?? actionResult.error }]
+}
+
+/**
+ * Run one rule now for one contact, the way a trigger would (the automation
+ * Test panel with dry run off). Conditions are the caller's job. Actions
+ * really run: emails and texts send, tags and tasks are written, and a delay
+ * schedules the remaining steps exactly as a live run does.
+ */
+export async function runAutomationRuleNow(
+  knex: any,
+  scope: Scope,
+  rule: any,
+  context: Record<string, any>,
+): Promise<AutomationStepRun[]> {
+  return runRuleSteps(knex, scope, rule, { ...context, ruleId: rule.id })
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+/** One honest line about a real run: what ran, what failed, what waits. */
+export function summarizeAutomationRun(runs: AutomationStepRun[]): { executed: boolean; message: string } {
+  const actions = runs.filter((r) => r.type === 'action')
+  const done = actions.filter((r) => r.status === 'executed').length
+  const failed = actions.filter((r) => r.status === 'failed')
+  const skipped = actions.filter((r) => r.status === 'skipped')
+  const waiting = runs.find((r) => r.type === 'delay' && r.status === 'scheduled')
+  const parts: string[] = []
+  parts.push(`${plural(done, 'action')} done`)
+  if (failed.length) parts.push(`${failed.length} failed (${failed[0]!.detail || 'no detail'})`)
+  if (skipped.length) parts.push(`${skipped.length} skipped (${skipped[0]!.detail || 'no detail'})`)
+  let message = `Ran for real: ${parts.join(', ')}.`
+  if (waiting?.executeAt) message += ` The steps after the wait are scheduled for ${waiting.executeAt} and run then.`
+  if (!actions.length && !waiting) message = 'Ran for real, but this automation has no actions to run.'
+  return { executed: failed.length === 0 && (done > 0 || !!waiting), message }
 }
 
 async function executeAction(
@@ -566,13 +564,17 @@ async function executeSteps(
   steps: Array<{ type: string; actionType?: string; actionConfig?: Record<string, any>; delayMinutes?: number }>,
   startIndex: number,
   context: Record<string, any>,
-) {
+): Promise<AutomationStepRun[]> {
+  const runs: AutomationStepRun[] = []
   for (let i = startIndex; i < steps.length; i++) {
     const step = steps[i]
 
     if (step.type === 'delay') {
-      // Schedule remaining steps for later execution
-      const delayMinutes = step.delayMinutes || 60
+      // Schedule remaining steps for later execution. They resume when the
+      // box cron calls /api/sequences/automation-rules/run-scheduled (every
+      // 10 minutes), which runs processScheduledSteps below. Needs the
+      // automation_scheduled_steps table (Migration20260928093000_sequences).
+      const delayMinutes = Number(step.delayMinutes) > 0 ? Number(step.delayMinutes) : 60
       const executeAt = new Date(Date.now() + delayMinutes * 60 * 1000)
 
       await knex('automation_scheduled_steps').insert({
@@ -589,61 +591,64 @@ async function executeSteps(
         created_at: new Date(),
       })
 
-      // Log the delay scheduling
-      await knex('automation_rule_logs').insert({
-        id: require('crypto').randomUUID(),
-        rule_id: rule.id,
-        contact_id: context.contactId || null,
-        trigger_data: JSON.stringify({ step: i, type: 'delay', delayMinutes }),
-        action_result: JSON.stringify({ success: true, detail: `Delay ${delayMinutes} minutes — remaining steps scheduled for ${executeAt.toISOString()}` }),
+      const detail = `Wait ${delayMinutes} minutes: the remaining steps are scheduled for ${executeAt.toISOString()}`
+      await writeRunLog(knex, {
+        ruleId: rule.id,
+        contactId: context.contactId,
+        triggerData: { step: i, type: 'delay', delayMinutes },
+        result: { success: true, detail },
         status: 'scheduled',
-        created_at: new Date(),
-      }).catch(() => {})
+      })
+      runs.push({ index: i, type: 'delay', status: 'scheduled', detail, executeAt: executeAt.toISOString() })
 
-      return // Stop processing; remaining steps will be picked up by the scheduler
+      return runs // Stop processing; remaining steps will be picked up by the scheduler
     }
 
     if (step.type === 'action') {
       const stepActionType = step.actionType || 'send_email'
       const stepActionConfig = step.actionConfig || {}
       let actionResult: ActionResult = { success: false }
-      let status = 'executed'
+      let status: AutomationStepRun['status']
+      let threw = false
 
       try {
         actionResult = await executeAction(knex, orgId, tenantId, stepActionType, stepActionConfig, { ...context, ruleId: rule?.id || context.ruleId })
-        if (actionResult.skipped) status = 'skipped'
+        status = actionStatus(actionResult)
       } catch (err) {
+        threw = true
         status = 'failed'
         actionResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
         console.error(`[automation-rules] Step ${i} action failed for rule ${rule.id}:`, err)
       }
 
-      await knex('automation_rule_logs').insert({
-        id: require('crypto').randomUUID(),
-        rule_id: rule.id,
-        contact_id: context.contactId || null,
-        trigger_data: JSON.stringify({ step: i, actionType: stepActionType, ...context }),
-        action_result: JSON.stringify(actionResult),
+      await writeRunLog(knex, {
+        ruleId: rule.id,
+        contactId: context.contactId,
+        triggerData: { step: i, actionType: stepActionType, ...context },
+        result: actionResult,
         status,
-        created_at: new Date(),
-      }).catch(() => {})
+      })
+      runs.push({ index: i, type: 'action', actionType: stepActionType, status, detail: actionResult.detail ?? actionResult.error })
 
-      // If action failed, stop the chain
-      if (status === 'failed') return
+      // An action that threw stops the chain (a failed send that reported
+      // back is logged as failed and the chain continues, as before).
+      if (threw) return runs
     }
   }
+  return runs
 }
 
 // ---------------------------------------------------------------------------
 // Scheduled Steps Processor
 // ---------------------------------------------------------------------------
 
-export async function processScheduledSteps(knex: any, opts: { organizationId?: string | null } = {}) {
+export async function processScheduledSteps(knex: any, opts: { organizationId?: string | null; tenantId?: string | null } = {}) {
   const now = new Date()
   let pendingQuery = knex('automation_scheduled_steps')
     .where('status', 'pending')
     .where('execute_at', '<=', now)
   if (opts.organizationId) pendingQuery = pendingQuery.where('organization_id', opts.organizationId)
+  if (opts.tenantId) pendingQuery = pendingQuery.where('tenant_id', opts.tenantId)
   const pendingSteps = await pendingQuery
     .orderBy('execute_at', 'asc')
     .limit(50)
@@ -660,16 +665,20 @@ export async function processScheduledSteps(knex: any, opts: { organizationId?: 
 
       if (updated === 0) continue // Already picked up by another process
 
-      const steps = typeof scheduled.steps === 'string' ? JSON.parse(scheduled.steps) : scheduled.steps
-      const context = typeof scheduled.context === 'string' ? JSON.parse(scheduled.context) : scheduled.context
+      const steps = parseJson<any[]>(scheduled.steps, [])
+      const context = parseJson<Record<string, any>>(scheduled.context, {})
 
-      // Look up the rule to ensure it is still active
+      // The rule must still exist, in the same organization and tenant, and be on.
       const rule = scheduled.rule_id
-        ? await knex('automation_rules').where('id', scheduled.rule_id).where('organization_id', scheduled.organization_id).first()
+        ? await knex('automation_rules')
+          .where('id', scheduled.rule_id)
+          .where('organization_id', scheduled.organization_id)
+          .where('tenant_id', scheduled.tenant_id)
+          .first()
         : null
 
-      if (rule && !rule.is_active) {
-        // Rule was paused/disabled since scheduling — skip
+      if (!rule || !rule.is_active) {
+        // Rule was deleted, paused or disabled since scheduling: skip
         await knex('automation_scheduled_steps').where('id', scheduled.id).update({ status: 'skipped' })
         continue
       }
@@ -678,9 +687,9 @@ export async function processScheduledSteps(knex: any, opts: { organizationId?: 
         knex,
         scheduled.organization_id,
         scheduled.tenant_id,
-        rule || { id: scheduled.rule_id },
+        rule,
         steps,
-        scheduled.current_step,
+        Number(scheduled.current_step) || 0,
         context,
       )
 

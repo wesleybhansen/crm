@@ -9,6 +9,7 @@ import { checkSequenceTriggers } from '@/modules/sequences/services/sequence-tri
 import { trackEngagement } from '@/modules/customers/lib/engagement-score'
 import { dispatchWebhook } from '@/modules/customers/api/webhooks/dispatch'
 import { executeAutomationRules } from '@/modules/sequences/lib/automation-execute'
+import { dispatchContactCreated } from '@/modules/sequences/lib/automation-dispatch'
 import { attributeReferral } from '@/modules/customers/api/affiliates/attribute'
 import { bumpDailyStats, isValidAffiliateCode, readAbArmFromRequest } from '../../../../services/public-serving'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
@@ -272,8 +273,10 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
           }).catch(() => {})
         }
         if (contactId && !existing) {
-          executeAutomationRules(knex, page.organization_id, page.tenant_id, 'contact_created', {
-            contactId, source: utmSource ? `landing_page:${utmSource}` : 'landing_page',
+          // "Contact created" automations and sequences, once per contact
+          dispatchContactCreated(knex, {
+            organizationId: page.organization_id, tenantId: page.tenant_id, contactId,
+            source: utmSource ? `landing_page:${utmSource}` : 'landing_page',
           }).catch(() => {})
         }
 
