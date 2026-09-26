@@ -169,11 +169,26 @@ export async function POST(req: Request) {
 
       // Update invoice status if applicable
       if (meta.invoiceId) {
-        await knex('invoices').where('id', meta.invoiceId).update({
+        const paidAt = new Date()
+        // Only an unpaid invoice flips (and announces itself) once.
+        const flipped = await knex('invoices').where('id', meta.invoiceId).whereNot('status', 'paid').update({
           status: 'paid',
-          paid_at: new Date(),
-          updated_at: new Date(),
-        }).catch(() => {})
+          paid_at: paidAt,
+          updated_at: paidAt,
+        }).catch(() => 0)
+        if (flipped) {
+          const paidInvoice = await knex('invoices').where('id', meta.invoiceId).first('id', 'organization_id', 'tenant_id', 'contact_id').catch(() => null)
+          if (paidInvoice?.organization_id && paidInvoice?.tenant_id) {
+            const { emitInvoicePaid } = await import('@/lib/crm-business-events')
+            await emitInvoicePaid(container.resolve('eventBus') as Parameters<typeof emitInvoicePaid>[0], {
+              id: String(paidInvoice.id),
+              organizationId: String(paidInvoice.organization_id),
+              tenantId: String(paidInvoice.tenant_id),
+              paidAt: paidAt.toISOString(),
+              contactId: paidInvoice.contact_id ?? null,
+            })
+          }
+        }
       }
 
       // Auto-create contact from customer email and link to payment record

@@ -17,7 +17,9 @@ export async function POST() {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
-    const result = await processScheduledSteps(knex)
+    // A signed-in user runs their own organization's due steps only; the box
+    // cron runs everyone's through run-scheduled with the service token.
+    const result = await processScheduledSteps(knex, { organizationId: auth.orgId })
 
     return NextResponse.json({ ok: true, data: result })
   } catch (error) {

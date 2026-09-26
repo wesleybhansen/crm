@@ -101,6 +101,24 @@ export async function findPrimaryOrgIdForUser(
   return (data?.organization_id as string | undefined) ?? null;
 }
 
+/* The noli-core user who owns an organization: the member with role 'owner',
+ * else the earliest member. Null when the org has no members. Uncached; the
+ * same rule lib/noli/ai-usage.ts applies when it bills an org's AI usage. */
+export async function findOrgOwnerUserId(
+  noliOrgId: string,
+): Promise<string | null> {
+  const supabase = getNoliCoreClient();
+  const { data, error } = await supabase
+    .from('organization_members')
+    .select('user_id, role, created_at')
+    .eq('organization_id', noliOrgId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  const rows = (data as { user_id: string; role: string | null }[] | null) ?? [];
+  const owner = rows.find((r) => r.role === 'owner') ?? rows[0];
+  return owner?.user_id ?? null;
+}
+
 /* Strict, uncached membership check for machine credentials. Unlike the
  * primary-org helper this answers whether one exact user/org link exists. */
 export async function hasNoliOrgMembership(

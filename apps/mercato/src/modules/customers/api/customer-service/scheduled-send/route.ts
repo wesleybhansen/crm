@@ -11,6 +11,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { sendReply } from '@/modules/customers/lib/send-reply'
+import { isWithinSendWindow, logAssistedActivity, normalizeAssistedConfig } from '@/modules/customers/lib/assisted-send'
 
 // If this many scheduled auto-sends are cancelled by the user within the window,
 // the org's auto-sending trips the circuit breaker and pauses itself.
@@ -112,10 +113,31 @@ export async function POST(req: Request) {
           .limit(remaining)
           .select('a.id as action_id', 'a.proposal_id', 'a.payload', 'a.metadata')
 
+        // Assisted replies keep to the owner's send hours even when their hold
+        // window ends outside them: such a reply becomes a plain draft.
+        const assistedConfig = normalizeAssistedConfig(settings.assisted_config)
+        const insideSendHours = isWithinSendWindow(assistedConfig.sendWindow, now)
+
         for (const row of due) {
           if (remaining <= 0) break
           const meta = safeParse(row.metadata)
           const payload = safeParse(row.payload)
+          const assistedMeta = meta.assisted && typeof meta.assisted === 'object' ? meta.assisted : null
+          if (assistedMeta && !insideSendHours) {
+            await knex('inbox_proposal_actions')
+              .where('id', row.action_id)
+              .where('organization_id', orgId)
+              .where('status', 'pending')
+              .update({
+                updated_at: now,
+                metadata: JSON.stringify({
+                  ...meta,
+                  auto_scheduled: false,
+                  assisted: { ...assistedMeta, holdReasons: [{ key: 'quiet_hours', label: 'Outside your send hours' }] },
+                }),
+              })
+            continue
+          }
           const to = payload.to as string | undefined
           const bodyText = (payload.body as string) || ''
           const subject = (payload.subject as string) || 'Re: your message'
@@ -152,6 +174,17 @@ export async function POST(req: Request) {
                 metadata: JSON.stringify({ ...meta, auto_sent: true, auto_scheduled: false }),
               })
             await knex('inbox_proposals').where('id', row.proposal_id).where('organization_id', orgId).update({ status: 'accepted', reviewed_at: now, updated_at: now })
+            if (assistedMeta) {
+              await logAssistedActivity(knex, {
+                organizationId: orgId,
+                tenantId,
+                contactId,
+                channel: 'email',
+                inquiryTypes: Array.isArray(assistedMeta.inquiryTypes) ? assistedMeta.inquiryTypes.filter((t: unknown): t is string => typeof t === 'string') : [],
+                subject,
+                body: bodyText,
+              })
+            }
             sent++
             remaining--
           } else {

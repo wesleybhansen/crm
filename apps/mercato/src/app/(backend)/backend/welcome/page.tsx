@@ -1230,6 +1230,10 @@ export default function WelcomePage() {
                 { href: '/backend/landing-pages/create', icon: FileText, title: 'Create a landing page', desc: `${aiPersonaName || 'Noli'} builds it in minutes` },
                 { href: '/backend/customers/deals/pipeline', icon: Kanban, title: pipelineMode === 'journey' ? 'View customer journey' : 'View your pipeline', desc: pipelineMode === 'journey' ? 'Track contacts through lifecycle stages' : 'Track deals from lead to close' },
                 { href: '/backend/sequences', icon: Sparkles, title: 'Set up an automation', desc: 'Browse pre-built email sequence recipes' },
+                // Realtors: suggest Assisted replies (off until they turn it on).
+                ...(businessType === 'realestate'
+                  ? [{ href: '/backend/customer-service?tab=settings', icon: MessageSquare, title: 'Let Noli answer showing requests', desc: 'Turn on Assisted replies: routine questions get answered during your hours, the rest waits for you' }]
+                  : []),
               ].map(item => (
                 <a key={item.href} href={item.href} onClick={() => { sessionStorage.removeItem('onboarding_state') }}
                   className="flex items-center gap-3 px-4 py-3 rounded-lg border hover:bg-muted/50 transition group">

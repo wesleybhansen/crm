@@ -22,6 +22,16 @@ import { ingestImapConnection } from '@/modules/email/lib/inbox-ingest'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import {
+  countRecentAutoReplies,
+  decideAssistedSend,
+  inquiryScenarioInputs,
+  logAssistedActivity,
+  normalizeAssistedConfig,
+  screenAssistedContent,
+  splitMatchedScenarios,
+} from '@/modules/customers/lib/assisted-send'
+import type { AssistedConfig, AssistedReason } from '@/modules/customers/lib/assisted-send'
 
 // Hard cap on conversations processed per org per run.
 const BATCH_PER_ORG = 25
@@ -30,14 +40,16 @@ const CS_FETCH_PER_MAILBOX = 50
 // How far back to look on the first fetch (no prior watermark on the conn).
 const CS_FETCH_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000
 
-const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
+const VALID_MODES = new Set(['draft', 'auto', 'hybrid', 'assisted'])
 const DEFAULT_HYBRID_THRESHOLD = 0.8
+// Assisted mode's per-contact limit counts automatic replies in this window.
+const ASSISTED_CONTACT_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Customer Service',
   summary: 'Customer Service recurring processor',
   methods: {
-    POST: { summary: 'Cron: draft/auto-send replies for new inbound inquiries (draft | auto | hybrid)', tags: ['Customer Service'] },
+    POST: { summary: 'Cron: draft/auto-send replies for new inbound inquiries (draft | auto | hybrid | assisted)', tags: ['Customer Service'] },
   },
 }
 
@@ -85,6 +97,8 @@ export async function POST(req: Request) {
       // Audiences (My team / Customers / …) — identity-based handling for this org.
       const audiences = await loadAudiences(knex, orgId)
       const drafterScenarios = toDrafterScenarios(flagScenarios)
+      // Assisted mode settings (channels, inquiry types, gates). Defaults = all off.
+      const assistedConfig = normalizeAssistedConfig(settings.assisted_config)
       let queued = 0
       let autoSent = 0
       let skipped = 0
@@ -250,6 +264,8 @@ export async function POST(req: Request) {
                   flagScenarios,
                   drafterScenarios,
                   audiences,
+                  assistedConfig,
+                  autoPaused,
                 })
                 if (handled === 'queued') queued++
                 else if (handled === 'sent') autoSent++
@@ -366,6 +382,10 @@ export async function POST(req: Request) {
               )
             })
             const emailDrafterScenarios = toDrafterScenarios(applicableScenarios)
+            // Assisted mode: the same drafting call also sorts the message into
+            // the inquiry types (as extra scenarios keyed inquiry_*), so the
+            // owner's "which kinds may send" gate costs no second AI call.
+            const assisted = effMode === 'assisted'
 
             const result = await generateReplyDraft(knex, aiKey, {
               orgId,
@@ -373,10 +393,10 @@ export async function POST(req: Request) {
               recentMessages,
               contactId,
               signature: settings.signature || null,
-              flagScenarios: emailDrafterScenarios,
-              // The critic verdict only gates hybrid auto-send; auto mode sends
-              // regardless and draft mode queues everything, so skip the extra call.
-              criticGate: effMode === 'hybrid',
+              flagScenarios: assisted ? [...emailDrafterScenarios, ...inquiryScenarioInputs()] : emailDrafterScenarios,
+              // The critic verdict gates hybrid and assisted auto-send; auto mode
+              // sends regardless and draft mode queues everything, so skip it there.
+              criticGate: effMode === 'hybrid' || assisted,
               conversationId: conv.id,
             })
 
@@ -411,7 +431,8 @@ export async function POST(req: Request) {
             //   any matched scenario action 'pause'  -> always QUEUE (even in
             //     auto/hybrid; flag-pause beats reply_mode).
             //   all matched scenarios 'auto_send'    -> send the draft.
-            const matched = result.matchedScenarios || []
+            const split = splitMatchedScenarios(result.matchedScenarios)
+            const matched = split.flags
             const flagged = matched.length > 0
             const flagOutcome = flagged ? resolveFlagOutcome(matched, applicableScenarios) : null
 
@@ -430,29 +451,56 @@ export async function POST(req: Request) {
             //             flagged the reply auto-send-safe; otherwise queue.
             // Default to NOT sending whenever the signal is ambiguous.
             let shouldAutoSend = false
-            if (effMode === 'auto') {
-              // Never auto-send a draft whose envelope did not parse (confidence 0):
-              // that text is a raw-model salvage and has had no review at all.
-              shouldAutoSend = result.confidence > 0
-            } else if (effMode === 'hybrid') {
-              shouldAutoSend = result.autoSendSafe === true && result.confidence >= effThreshold
-            }
-
-            // Flag override: pause wins over everything; all-auto_send forces send.
-            if (flagOutcome) {
-              shouldAutoSend = flagOutcome.shouldPause ? false : true
-            }
-
-            // Audience 'pause' (e.g. VIP customers): always hold for review, whatever
-            // the reply mode or content flags say.
+            // Assisted: why a reply that could have sent stays a draft (shown in the queue).
+            let assistedHold: AssistedReason[] | null = null
             const audiencePause = senderMatch.action === 'pause'
-            if (audiencePause) shouldAutoSend = false
-            // Audience 'auto_send' (trusted senders): in hybrid mode, treat as
-            // auto-send-safe (skip the confidence gate). Never overrides a content
-            // pause, and draft mode still holds everything. The kill switch + hourly
-            // cap downstream still apply.
-            if (senderMatch.action === 'auto_send' && effMode === 'hybrid' && !flagOutcome?.shouldPause) {
-              shouldAutoSend = true
+            if (assisted) {
+              // Every Assisted gate in one decision. Flag scenarios and audiences
+              // can only hold here, never force a send.
+              const inboundText = (inbound.body_text || stripTags(inbound.body_html) || '').toString()
+              const recentToContact = await countRecentAutoReplies(
+                knex,
+                { organizationId: orgId, tenantId },
+                { contactId, to: toEmail },
+                new Date(Date.now() - ASSISTED_CONTACT_WINDOW_MS),
+              )
+              const decision = decideAssistedSend({
+                channel: 'email',
+                config: assistedConfig,
+                draft: { confidence: result.confidence, autoSendSafe: result.autoSendSafe === true },
+                inquiryTypes: split.inquiryTypes,
+                flagged,
+                audienceAction: senderMatch.action,
+                contentReasons: screenAssistedContent({ inbound: inboundText, draft: result.draft, recipientName: displayName }),
+                now: new Date(),
+                recentAutoRepliesToContact: recentToContact,
+              })
+              shouldAutoSend = decision.send
+              if (!decision.send) assistedHold = decision.reasons
+            } else {
+              if (effMode === 'auto') {
+                // Never auto-send a draft whose envelope did not parse (confidence 0):
+                // that text is a raw-model salvage and has had no review at all.
+                shouldAutoSend = result.confidence > 0
+              } else if (effMode === 'hybrid') {
+                shouldAutoSend = result.autoSendSafe === true && result.confidence >= effThreshold
+              }
+
+              // Flag override: pause wins over everything; all-auto_send forces send.
+              if (flagOutcome) {
+                shouldAutoSend = flagOutcome.shouldPause ? false : true
+              }
+
+              // Audience 'pause' (e.g. VIP customers): always hold for review, whatever
+              // the reply mode or content flags say.
+              if (audiencePause) shouldAutoSend = false
+              // Audience 'auto_send' (trusted senders): in hybrid mode, treat as
+              // auto-send-safe (skip the confidence gate). Never overrides a content
+              // pause, and draft mode still holds everything. The kill switch + hourly
+              // cap downstream still apply.
+              if (senderMatch.action === 'auto_send' && effMode === 'hybrid' && !flagOutcome?.shouldPause) {
+                shouldAutoSend = true
+              }
             }
 
             // Common flag metadata for the proposal/action rows.
@@ -469,6 +517,14 @@ export async function POST(req: Request) {
             // Immediate send only while the hourly budget lasts; once exhausted,
             // fall through to the review queue rather than send uncapped.
             const sendNow = shouldAutoSend && !autoPaused && holdMinutes === 0 && immediateBudget > 0
+            if (assisted && shouldAutoSend && !holdThis && !sendNow) {
+              assistedHold = autoPaused
+                ? [{ key: 'paused', label: 'Automatic sending is paused' }]
+                : [{ key: 'hourly_cap', label: 'Hourly limit for automatic replies reached' }]
+            }
+            const assistedMeta = assisted
+              ? { inquiryTypes: split.inquiryTypes, reasons: assistedHold ?? [] }
+              : undefined
 
             if (holdThis) {
               // Queue it as a SCHEDULED draft (shows in the inbox with a
@@ -486,6 +542,7 @@ export async function POST(req: Request) {
                 status: 'pending',
                 flag: flagMeta,
                 autoSchedule: { scheduledSendAt: new Date(Date.now() + holdMinutes * 60000).toISOString() },
+                assisted: assistedMeta,
               })
               await markDrafted(knex, conv.id, orgId)
               queued++
@@ -512,7 +569,19 @@ export async function POST(req: Request) {
                   confidence: result.confidence,
                   status: 'sent',
                   flag: flagMeta,
+                  assisted: assistedMeta,
                 })
+                if (assisted) {
+                  await logAssistedActivity(knex, {
+                    organizationId: orgId,
+                    tenantId,
+                    contactId,
+                    channel: 'email',
+                    inquiryTypes: split.inquiryTypes,
+                    subject,
+                    body: result.draft,
+                  })
+                }
                 await markDrafted(knex, conv.id, orgId)
                 autoSent++
                 immediateBudget--
@@ -531,6 +600,7 @@ export async function POST(req: Request) {
                   confidence: result.confidence,
                   status: 'pending',
                   flag: flagMeta,
+                  assisted: assistedMeta ? { ...assistedMeta, reasons: [{ key: 'send_failed', label: 'The send failed, so it waits for you' }] } : undefined,
                 })
                 await markDrafted(knex, conv.id, orgId)
                 queued++
@@ -547,6 +617,7 @@ export async function POST(req: Request) {
                 confidence: result.confidence,
                 status: 'pending',
                 flag: flagMeta,
+                assisted: assistedMeta,
               })
               await markDrafted(knex, conv.id, orgId)
               queued++
@@ -634,11 +705,14 @@ async function handleSmsConversation(
     flagScenarios: FlagScenario[]
     drafterScenarios: FlagScenarioInput[]
     audiences: Audience[]
+    assistedConfig: AssistedConfig
+    autoPaused: boolean
   },
 ): Promise<'queued' | 'sent' | 'skipped'> {
   // drafterScenarios is re-derived per-conversation below (audience-gated), so the
   // pre-built set from the caller is intentionally not destructured here.
-  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey, flagScenarios, audiences } = args
+  const { conv, orgId, tenantId, mode, hybridThreshold, csSmsNumber, signature, byoKey, flagScenarios, audiences, assistedConfig, autoPaused } = args
+  const assisted = mode === 'assisted'
 
   // Resolve the customer's phone number: prefer the conversation avatar_phone,
   // else the contact's primary_phone. We need it both to load the transcript and
@@ -719,8 +793,8 @@ async function handleSmsConversation(
     recentMessages,
     contactId,
     signature: null,
-    flagScenarios: smsDrafterScenarios,
-    criticGate: mode === 'hybrid',
+    flagScenarios: assisted ? [...smsDrafterScenarios, ...inquiryScenarioInputs()] : smsDrafterScenarios,
+    criticGate: mode === 'hybrid' || assisted,
     conversationId: conv.id,
   })
 
@@ -739,7 +813,8 @@ async function handleSmsConversation(
 
   // Flag scenarios override reply mode (same rule as email): pause beats
   // auto/hybrid, all-auto_send forces a send. Email the org user on any flag.
-  const matched = result.matchedScenarios || []
+  const split = splitMatchedScenarios(result.matchedScenarios)
+  const matched = split.flags
   const flagged = matched.length > 0
   const flagOutcome = flagged ? resolveFlagOutcome(matched, applicableScenarios) : null
   // A "don't draft" content rule matched — discard the draft and move on.
@@ -747,13 +822,39 @@ async function handleSmsConversation(
   const flagMeta = flagged ? { flagged: true, flagReasons: flagOutcome?.reasons || [] } : undefined
 
   let shouldAutoSend = false
-  if (mode === 'auto') shouldAutoSend = true
-  else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
-  if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
-  // Audience identity actions: 'pause' always holds; 'auto_send' relaxes the hybrid
-  // gate (never over a content pause; draft mode still holds).
-  if (senderMatch.action === 'pause') shouldAutoSend = false
-  if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) shouldAutoSend = true
+  let assistedHold: AssistedReason[] | null = null
+  if (assisted) {
+    // Every Assisted gate in one decision (the SMS channel has its own switch).
+    const recentToContact = await countRecentAutoReplies(
+      knex,
+      { organizationId: orgId, tenantId },
+      { contactId, to: toPhone },
+      new Date(Date.now() - ASSISTED_CONTACT_WINDOW_MS),
+    )
+    const decision = decideAssistedSend({
+      channel: 'sms',
+      config: assistedConfig,
+      draft: { confidence: result.confidence, autoSendSafe: result.autoSendSafe === true },
+      inquiryTypes: split.inquiryTypes,
+      flagged,
+      audienceAction: senderMatch.action,
+      contentReasons: screenAssistedContent({ inbound: String(inbound.body || ''), draft: result.draft, recipientName: contact?.display_name || conv.display_name || null }),
+      now: new Date(),
+      recentAutoRepliesToContact: recentToContact,
+    })
+    shouldAutoSend = decision.send && !autoPaused
+    if (!decision.send) assistedHold = decision.reasons
+    else if (autoPaused) assistedHold = [{ key: 'paused', label: 'Automatic sending is paused' }]
+  } else {
+    if (mode === 'auto') shouldAutoSend = true
+    else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
+    if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
+    // Audience identity actions: 'pause' always holds; 'auto_send' relaxes the hybrid
+    // gate (never over a content pause; draft mode still holds).
+    if (senderMatch.action === 'pause') shouldAutoSend = false
+    if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) shouldAutoSend = true
+  }
+  const assistedMeta = assisted ? { inquiryTypes: split.inquiryTypes, reasons: assistedHold ?? [] } : undefined
 
   // Fire the flag alert once, regardless of which branch handles the draft.
   const fireAlert = async (paused: boolean) => {
@@ -779,7 +880,19 @@ async function handleSmsConversation(
       await createSmsDraftProposal(knex, orgId, tenantId, {
         displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
         body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'sent', flag: flagMeta,
+        assisted: assistedMeta,
       })
+      if (assisted) {
+        await logAssistedActivity(knex, {
+          organizationId: orgId,
+          tenantId,
+          contactId,
+          channel: 'sms',
+          inquiryTypes: split.inquiryTypes,
+          subject: null,
+          body: result.draft,
+        })
+      }
       await markDrafted(knex, conv.id, orgId)
       await fireAlert(false)
       return 'sent'
@@ -789,6 +902,7 @@ async function handleSmsConversation(
     await createSmsDraftProposal(knex, orgId, tenantId, {
       displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
       body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending', flag: flagMeta,
+      assisted: assistedMeta ? { ...assistedMeta, reasons: [{ key: 'send_failed', label: 'The send failed, so it waits for you' }] } : undefined,
     })
     await markDrafted(knex, conv.id, orgId)
     await fireAlert(true)
@@ -798,10 +912,16 @@ async function handleSmsConversation(
   await createSmsDraftProposal(knex, orgId, tenantId, {
     displayName, toPhone, contactId: contactId || '', conversationId: conv.id,
     body: result.draft, lastInboundPreview, confidence: result.confidence, status: 'pending', flag: flagMeta,
+    assisted: assistedMeta,
   })
   await markDrafted(knex, conv.id, orgId)
   await fireAlert(true)
   return 'queued'
+}
+
+// Plain text of an HTML email body, for the Assisted content screen.
+function stripTags(html: unknown): string {
+  return typeof html === 'string' ? html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim() : ''
 }
 
 // email_messages.metadata is jsonb; the driver may hand it back parsed or as a
@@ -983,6 +1103,8 @@ async function createDraftProposal(
     // Set when this is a held auto-send: the draft is pending but will be sent
     // automatically at scheduledSendAt by the scheduled-send pass.
     autoSchedule?: { scheduledSendAt: string }
+    // Assisted mode: the inquiry types matched and, for a draft, why it waits.
+    assisted?: { inquiryTypes: string[]; reasons: AssistedReason[] }
   },
 ) {
   const now = new Date()
@@ -1056,6 +1178,7 @@ async function createDraftProposal(
       flagReasons: d.flag?.flagReasons || [],
       auto_scheduled: Boolean(d.autoSchedule),
       scheduled_send_at: d.autoSchedule?.scheduledSendAt ?? null,
+      ...(d.assisted ? { assisted: { inquiryTypes: d.assisted.inquiryTypes, holdReasons: d.assisted.reasons } } : {}),
     }),
     created_at: now,
     updated_at: now,
@@ -1079,6 +1202,7 @@ async function createSmsDraftProposal(
     confidence?: number
     status?: 'pending' | 'sent'
     flag?: { flagged: boolean; flagReasons: Array<{ key: string; label: string }> }
+    assisted?: { inquiryTypes: string[]; reasons: AssistedReason[] }
   },
 ) {
   const now = new Date()
@@ -1149,6 +1273,7 @@ async function createSmsDraftProposal(
       channel: 'sms',
       flagged: d.flag?.flagged === true,
       flagReasons: d.flag?.flagReasons || [],
+      ...(d.assisted ? { assisted: { inquiryTypes: d.assisted.inquiryTypes, holdReasons: d.assisted.reasons } } : {}),
     }),
     created_at: now,
     updated_at: now,

@@ -37,6 +37,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { emitDealClosedIfTransitioned } from '../lib/dealClosed'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -316,6 +317,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
 
     const previousStatus = record.status
     const previousPipelineStageId = record.pipelineStageId
+    const previousPipelineStage = record.pipelineStage ?? null
 
     if (parsed.title !== undefined) record.title = parsed.title
     if (parsed.description !== undefined) record.description = parsed.description ?? null
@@ -374,14 +376,29 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             tenantId: record.tenantId,
             title: record.title,
             stage: record.pipelineStage,
-            previousStage: null,
+            previousStage: previousPipelineStage,
             status: record.status,
+            changedAt: new Date().toISOString(),
           })
         }
       } catch {
         // non-critical
       }
     }
+
+    let eventBus: unknown = null
+    try {
+      eventBus = ctx.container.resolve('eventBus')
+    } catch {
+      eventBus = null
+    }
+    await emitDealClosedIfTransitioned(eventBus as Parameters<typeof emitDealClosedIfTransitioned>[0], {
+      id: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      before: { status: previousStatus, pipelineStage: previousPipelineStage },
+      after: { status: record.status, pipelineStage: record.pipelineStage ?? null },
+    })
 
     // Send notifications for deal won/lost status changes
     const newStatus = record.status

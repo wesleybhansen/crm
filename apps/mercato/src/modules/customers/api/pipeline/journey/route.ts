@@ -189,6 +189,7 @@ export async function PUT(req: Request, ctx?: any) {
             tenantId: auth.tenantId,
             stage: normalizedStage,
             previousStage,
+            changedAt: new Date().toISOString(),
           }, { persistent: true })
         }
       } catch {}
@@ -215,31 +216,10 @@ export async function PUT(req: Request, ctx?: any) {
       })
     }
 
-    // Trigger automation rules for stage change
-    try {
-      const rules = await knex('automation_rules')
-        .where('organization_id', auth.orgId)
-        .where('trigger_type', 'stage_change')
-        .where('is_active', true)
-
-      for (const rule of rules) {
-        const triggerConfig = typeof rule.trigger_config === 'string' ? JSON.parse(rule.trigger_config) : rule.trigger_config
-        if (triggerConfig.stage === normalizedStage || !triggerConfig.stage) {
-          // Log automation execution
-          await knex('automation_rule_logs').insert({
-            id: require('crypto').randomUUID(),
-            rule_id: rule.id,
-            contact_id: contactId,
-            trigger_data: JSON.stringify({ previousStage, newStage: normalizedStage }),
-            action_result: JSON.stringify({ triggered: true }),
-            status: 'executed',
-            created_at: new Date(),
-          })
-        }
-      }
-    } catch {
-      // Non-blocking: automation execution failures should not break the stage move
-    }
+    // stage_change automation rules and deal-stage sequences run from the
+    // customers.person.stage_changed event above (sequences/subscribers/
+    // automation-person-stage-changed.ts). This route used to write an
+    // "executed" log line here without running the rule.
 
     return NextResponse.json({ ok: true, data: { previousStage, newStage: normalizedStage } })
   } catch (error) {

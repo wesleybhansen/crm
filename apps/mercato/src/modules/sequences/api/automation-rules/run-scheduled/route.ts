@@ -1,11 +1,15 @@
-export const metadata = { POST: { requireAuth: true } }
+// Auth is checked in the handler: a signed-in user (their own organization) or
+// the box cron's service token (every tenant). Nothing else gets through.
+export const metadata = { POST: { requireAuth: false } }
 
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { processScheduledSteps } from '@/modules/sequences/lib/automation-execute'
 import {
   decryptRowFields,
   decryptAliasedRowFields,
@@ -255,129 +259,218 @@ async function executeScheduledAction(
 }
 
 // ---------------------------------------------------------------------------
-// POST handler
+// Run one organization's scheduled rules
 // ---------------------------------------------------------------------------
 
-export async function POST(req: Request) {
-  const auth = await getAuthFromCookies()
-  if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+type RuleRunResult = {
+  ruleId: string
+  ruleName: string
+  targetsFound: number
+  executed: number
+  skipped: boolean
+  error?: string
+}
 
-  try {
-    const container = await createRequestContainer()
-    const knex = (container.resolve('em') as EntityManager).getKnex()
+/**
+ * Claim a rule's run by moving its lastRun forward in ONE guarded update,
+ * matched on the lastRun this run read. The box cron and the Automations page
+ * (which runs this on load) can arrive together; only the claim winner runs,
+ * so nobody gets a scheduled email twice. The claim happens before the steps
+ * run: a run that fails part-way waits for its next interval, it is not
+ * repeated at once.
+ */
+async function claimRuleRun(knex: any, rule: Record<string, any>, triggerConfig: Record<string, any>, now: Date): Promise<boolean> {
+  const previous = typeof triggerConfig.lastRun === 'string' ? triggerConfig.lastRun : null
+  let query = knex('automation_rules')
+    .where('id', rule.id)
+    .where('organization_id', rule.organization_id)
+  query = previous
+    ? query.whereRaw("trigger_config->>'lastRun' = ?", [previous])
+    : query.whereRaw("trigger_config->>'lastRun' is null")
+  const updated = await query.update({
+    trigger_config: JSON.stringify({ ...triggerConfig, lastRun: now.toISOString() }),
+    updated_at: now,
+  })
+  return Number(updated) > 0
+}
 
-    const body = await req.json().catch(() => ({}))
-    const forceRuleId = body.ruleId as string | undefined
+export async function runScheduledRulesForOrg(
+  knex: any,
+  scope: { organizationId: string; tenantId: string },
+  opts: { forceRuleId?: string | null; dryRun?: boolean; now?: Date } = {},
+): Promise<{ rulesChecked: number; results: RuleRunResult[] }> {
+  const { organizationId: orgId, tenantId } = scope
+  const now = opts.now ?? new Date()
+  let query = knex('automation_rules')
+    .where('organization_id', orgId)
+    .where('tenant_id', tenantId)
+    .where('trigger_type', 'schedule')
+    .where('is_active', true)
+  if (opts.forceRuleId) query = query.where('id', opts.forceRuleId)
+  const rules = await query
 
-    // Find scheduled automation rules
-    let query = knex('automation_rules')
-      .where('organization_id', auth.orgId)
-      .where('trigger_type', 'schedule')
-      .where('is_active', true)
+  const results: RuleRunResult[] = []
+  for (const rule of rules) {
+    const triggerConfig = typeof rule.trigger_config === 'string'
+      ? JSON.parse(rule.trigger_config)
+      : (rule.trigger_config || {})
 
-    if (forceRuleId) {
-      query = query.where('id', forceRuleId)
+    // Check if this rule is due to run (skip check when force-running a specific rule)
+    if (!opts.forceRuleId && !isScheduleDue(triggerConfig)) {
+      results.push({ ruleId: rule.id, ruleName: rule.name, targetsFound: 0, executed: 0, skipped: true })
+      continue
     }
 
-    const rules = await query
-
-    const results: Array<{
-      ruleId: string
-      ruleName: string
-      targetsFound: number
-      executed: number
-      skipped: boolean
-      error?: string
-    }> = []
-
-    for (const rule of rules) {
-      const triggerConfig = typeof rule.trigger_config === 'string'
-        ? JSON.parse(rule.trigger_config)
-        : (rule.trigger_config || {})
-
-      // Check if this rule is due to run (skip check when force-running a specific rule)
-      if (!forceRuleId && !isScheduleDue(triggerConfig)) {
+    try {
+      const targets = await getScheduleTargets(knex, orgId, tenantId, triggerConfig)
+      if (opts.dryRun) {
+        // Report what would run; send nothing, write nothing, keep lastRun.
+        results.push({ ruleId: rule.id, ruleName: rule.name, targetsFound: targets.length, executed: 0, skipped: false })
+        continue
+      }
+      if (!(await claimRuleRun(knex, rule, triggerConfig, now))) {
         results.push({ ruleId: rule.id, ruleName: rule.name, targetsFound: 0, executed: 0, skipped: true })
         continue
       }
 
-      try {
-        const targets = await getScheduleTargets(knex, auth.orgId, auth.tenantId, triggerConfig)
+      // Parse the rule steps or fall back to single action
+      const steps = typeof rule.steps === 'string' ? JSON.parse(rule.steps) : rule.steps
+      const actionConfig = typeof rule.action_config === 'string' ? JSON.parse(rule.action_config) : (rule.action_config || {})
 
-        // Parse the rule steps or fall back to single action
-        const steps = typeof rule.steps === 'string' ? JSON.parse(rule.steps) : rule.steps
-        const actionConfig = typeof rule.action_config === 'string' ? JSON.parse(rule.action_config) : (rule.action_config || {})
+      let executedCount = 0
 
-        let executedCount = 0
-
-        for (const target of targets) {
-          const context: Record<string, any> = {
-            ...target,
-            contactId: target.contact_id || target.id,
-            triggerType: 'schedule',
-            scheduleType: triggerConfig.scheduleType,
-            reference: target.reference || target.id,
-            ruleId: rule.id,
-          }
-
-          if (Array.isArray(steps) && steps.length > 0) {
-            // Multi-step: execute action steps sequentially (delays are ignored in scheduled runs)
-            for (const step of steps) {
-              if (step.type === 'action') {
-                const stepResult = await executeScheduledAction(
-                  knex, auth.orgId, auth.tenantId!, step.actionType || 'send_email', step.actionConfig || {}, context,
-                )
-                await knex('automation_rule_logs').insert({
-                  id: require('crypto').randomUUID(),
-                  rule_id: rule.id,
-                  contact_id: context.contactId !== 'summary' && context.contactId !== 'trigger' ? context.contactId : null,
-                  trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
-                  action_result: JSON.stringify(stepResult),
-                  status: stepResult.success ? 'executed' : 'failed',
-                  created_at: new Date(),
-                }).catch(() => {})
-              }
-            }
-          } else {
-            // Single action
-            const stepResult = await executeScheduledAction(
-              knex, auth.orgId, auth.tenantId!, rule.action_type, actionConfig, context,
-            )
-            await knex('automation_rule_logs').insert({
-              id: require('crypto').randomUUID(),
-              rule_id: rule.id,
-              contact_id: context.contactId !== 'summary' && context.contactId !== 'trigger' ? context.contactId : null,
-              trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
-              action_result: JSON.stringify(stepResult),
-              status: stepResult.success ? 'executed' : 'failed',
-              created_at: new Date(),
-            }).catch(() => {})
-          }
-
-          executedCount++
+      for (const target of targets) {
+        const context: Record<string, any> = {
+          ...target,
+          contactId: target.contact_id || target.id,
+          triggerType: 'schedule',
+          scheduleType: triggerConfig.scheduleType,
+          reference: target.reference || target.id,
+          ruleId: rule.id,
         }
 
-        // Update lastRun on the trigger_config
-        const updatedConfig = { ...triggerConfig, lastRun: new Date().toISOString() }
-        await knex('automation_rules')
-          .where('id', rule.id)
-          .update({ trigger_config: JSON.stringify(updatedConfig), updated_at: new Date() })
+        if (Array.isArray(steps) && steps.length > 0) {
+          // Multi-step: execute action steps sequentially (delays are ignored in scheduled runs)
+          for (const step of steps) {
+            if (step.type === 'action') {
+              const stepResult = await executeScheduledAction(
+                knex, orgId, tenantId, step.actionType || 'send_email', step.actionConfig || {}, context,
+              )
+              await knex('automation_rule_logs').insert({
+                id: require('crypto').randomUUID(),
+                rule_id: rule.id,
+                contact_id: context.contactId !== 'summary' && context.contactId !== 'trigger' ? context.contactId : null,
+                trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
+                action_result: JSON.stringify(stepResult),
+                status: stepResult.success ? 'executed' : 'failed',
+                created_at: new Date(),
+              }).catch(() => {})
+            }
+          }
+        } else {
+          // Single action
+          const stepResult = await executeScheduledAction(
+            knex, orgId, tenantId, rule.action_type, actionConfig, context,
+          )
+          await knex('automation_rule_logs').insert({
+            id: require('crypto').randomUUID(),
+            rule_id: rule.id,
+            contact_id: context.contactId !== 'summary' && context.contactId !== 'trigger' ? context.contactId : null,
+            trigger_data: JSON.stringify({ scheduleType: triggerConfig.scheduleType, targetId: target.id }),
+            action_result: JSON.stringify(stepResult),
+            status: stepResult.success ? 'executed' : 'failed',
+            created_at: new Date(),
+          }).catch(() => {})
+        }
 
-        results.push({ ruleId: rule.id, ruleName: rule.name, targetsFound: targets.length, executed: executedCount, skipped: false })
+        executedCount++
+      }
+
+      results.push({ ruleId: rule.id, ruleName: rule.name, targetsFound: targets.length, executed: executedCount, skipped: false })
+    } catch (err) {
+      console.error(`[run-scheduled] Error processing rule ${rule.id}:`, err)
+      results.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        targetsFound: 0,
+        executed: 0,
+        skipped: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      })
+    }
+  }
+
+  return { rulesChecked: rules.length, results }
+}
+
+// ---------------------------------------------------------------------------
+// POST handler
+// ---------------------------------------------------------------------------
+
+/** The box cron's Bearer SEQUENCE_PROCESS_SECRET, compared in constant time. */
+function isServiceCall(req: Request): boolean {
+  const secret = process.env.SEQUENCE_PROCESS_SECRET
+  if (!secret) return false
+  const got = Buffer.from(req.headers.get('authorization') ?? '', 'utf8')
+  const expected = Buffer.from(`Bearer ${secret}`, 'utf8')
+  return got.length === expected.length && crypto.timingSafeEqual(got, expected)
+}
+
+export async function POST(req: Request) {
+  const service = isServiceCall(req)
+  const auth = service ? null : await getAuthFromCookies()
+  if (!service && (!auth?.tenantId || !auth?.orgId)) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
+  try {
+    const container = await createRequestContainer()
+    const knex = (container.resolve('em') as EntityManager).getKnex()
+    const body = await req.json().catch(() => ({}))
+
+    if (!service) {
+      // A signed-in user runs their own organization only (Automations page
+      // on load, and Run Now for one rule).
+      const forceRuleId = typeof body.ruleId === 'string' ? body.ruleId : null
+      const data = await runScheduledRulesForOrg(knex, { organizationId: auth!.orgId!, tenantId: auth!.tenantId! }, { forceRuleId })
+      return NextResponse.json({ ok: true, data })
+    }
+
+    // Box cron (every 10 minutes): every tenant's organizations with an
+    // active scheduled rule, each in its own tenant scope, then the delayed
+    // steps of multi-step automations. dryRun reports without sending.
+    const dryRun = body.dryRun === true
+    const onlyOrg = typeof body.organizationId === 'string' && body.organizationId ? body.organizationId : null
+    let scopesQuery = knex('automation_rules')
+      .where('trigger_type', 'schedule')
+      .where('is_active', true)
+      .distinct('organization_id', 'tenant_id')
+    if (onlyOrg) scopesQuery = scopesQuery.where('organization_id', onlyOrg)
+    const scopes = (await scopesQuery) as Array<{ organization_id: string; tenant_id: string }>
+
+    const organizations: Array<{ organizationId: string; rulesChecked: number; results: RuleRunResult[] }> = []
+    for (const scope of scopes) {
+      try {
+        const data = await runScheduledRulesForOrg(knex, { organizationId: scope.organization_id, tenantId: scope.tenant_id }, { dryRun })
+        organizations.push({ organizationId: scope.organization_id, ...data })
       } catch (err) {
-        console.error(`[run-scheduled] Error processing rule ${rule.id}:`, err)
-        results.push({
-          ruleId: rule.id,
-          ruleName: rule.name,
-          targetsFound: 0,
-          executed: 0,
-          skipped: false,
-          error: err instanceof Error ? err.message : 'Unknown error',
-        })
+        console.error('[run-scheduled] organization failed', { organizationId: scope.organization_id, err })
       }
     }
 
-    return NextResponse.json({ ok: true, data: { rulesChecked: rules.length, results } })
+    const delayedSteps = dryRun
+      ? { processed: 0, total: 0, dryRun: true }
+      : await processScheduledSteps(knex, onlyOrg ? { organizationId: onlyOrg } : {})
+
+    const ran = organizations.flatMap((o) => o.results).filter((r) => !r.skipped)
+    console.log('[run-scheduled] service run', {
+      dryRun,
+      organizations: organizations.length,
+      rulesRun: ran.length,
+      targets: ran.reduce((n, r) => n + r.targetsFound, 0),
+      delayedSteps,
+    })
+    return NextResponse.json({ ok: true, data: { dryRun, organizations, delayedSteps } })
   } catch (error) {
     console.error('[run-scheduled] POST error', error)
     return NextResponse.json({ ok: false, error: 'Failed' }, { status: 500 })

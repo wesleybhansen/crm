@@ -5,13 +5,32 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
-import { Headphones, Mail, Check, FileEdit, Send, Sparkles, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon, MessageSquare, Flag, Code, Link as LinkIcon, ExternalLink } from 'lucide-react'
+import { Headphones, Mail, Check, FileEdit, Send, Sparkles, ShieldCheck, BookOpen, MessageSquareQuote, FileText, Trash2, Plus, Server, Globe, X as XIcon, MessageSquare, Flag, Code, Link as LinkIcon, ExternalLink } from 'lucide-react'
 import AppPasswordGuides from '@/modules/customers/backend/components/AppPasswordGuides'
 import TwilioSmsGuide from '@/modules/customers/backend/components/TwilioSmsGuide'
 import CustomerServiceQueue from './CustomerServiceQueue'
 import { type CustomerServiceTab, customerServiceTabHref, parseCustomerServiceTab } from '../../lib/customerServiceTabs'
 
-type ReplyMode = 'draft' | 'auto' | 'hybrid'
+type ReplyMode = 'draft' | 'auto' | 'hybrid' | 'assisted'
+// Assisted mode: sends on its own only for the channels and inquiry types the
+// owner picks, inside their send hours, when every safety check passes.
+type AssistedConfig = {
+  channels: { email: boolean; sms: boolean }
+  inquiryTypes: string[]
+  minConfidence: number
+  sendWindow: { start: string; end: string; timezone: string; days: number[] }
+  perContactDailyLimit: number
+}
+type AssistedInquiryOption = { key: string; label: string; description: string }
+const DEFAULT_ASSISTED: AssistedConfig = {
+  channels: { email: false, sms: false },
+  inquiryTypes: [],
+  minConfidence: 0.85,
+  sendWindow: { start: '08:00', end: '20:00', timezone: 'America/Los_Angeles', days: [0, 1, 2, 3, 4, 5, 6] },
+  perContactDailyLimit: 2,
+}
+const ASSISTED_TIMEZONES = ['America/Los_Angeles', 'America/Denver', 'America/Phoenix', 'America/Chicago', 'America/New_York', 'America/Anchorage', 'Pacific/Honolulu', 'Europe/London', 'UTC']
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 type FlagAction = 'pause' | 'auto_send'
 type FlagScenario = { key: string; label: string; enabled: boolean; action: FlagAction; instructions: string }
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; purpose?: string | null }
@@ -28,6 +47,8 @@ type Settings = {
   csChatEnabled?: boolean
   flagScenarios?: FlagScenario[] | null
   defaultSignature?: string | null
+  assisted?: AssistedConfig | null
+  assistedInquiryTypes?: AssistedInquiryOption[] | null
 }
 // A website chat widget. Customer Service owns website chat: this panel manages
 // the widget's APPEARANCE and deployment only. Answers, knowledge, and escalation
@@ -83,6 +104,8 @@ export default function CustomerServiceSettingsPage() {
   const [watchedIds, setWatchedIds] = useState<string[] | null>(null)
   const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
   const [hybridThreshold, setHybridThreshold] = useState(0.8)
+  const [assisted, setAssisted] = useState<AssistedConfig>(DEFAULT_ASSISTED)
+  const [assistedInquiryTypes, setAssistedInquiryTypes] = useState<AssistedInquiryOption[]>([])
   const [signature, setSignature] = useState('')
   // Dedicated customer-service SMS number (E.164). Empty = SMS support off.
   const [csSmsNumber, setCsSmsNumber] = useState('')
@@ -382,7 +405,9 @@ export default function CustomerServiceSettingsPage() {
       if (settingsRes?.ok && settingsRes.data) {
         const s: Settings = settingsRes.data
         setWatchedIds(Array.isArray(s.watchedConnectionIds) ? s.watchedConnectionIds : null)
-        setReplyMode(s.replyMode === 'auto' || s.replyMode === 'hybrid' ? s.replyMode : 'draft')
+        setReplyMode(s.replyMode === 'auto' || s.replyMode === 'hybrid' || s.replyMode === 'assisted' ? s.replyMode : 'draft')
+        if (s.assisted) setAssisted(s.assisted)
+        if (Array.isArray(s.assistedInquiryTypes)) setAssistedInquiryTypes(s.assistedInquiryTypes)
         if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
           setHybridThreshold(Math.min(1, Math.max(0, s.hybridConfidenceThreshold)))
         }
@@ -672,6 +697,7 @@ export default function CustomerServiceSettingsPage() {
         csSmsNumber: csSmsNumber.trim(),
         csChatEnabled,
         flagScenarios,
+        assisted,
       }),
     })
     return res.json()
@@ -705,7 +731,32 @@ export default function CustomerServiceSettingsPage() {
     autosaveTimerRef.current = setTimeout(() => { void autosave() }, 700)
     return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber, csChatEnabled, flagScenarios])
+  }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber, csChatEnabled, flagScenarios, assisted])
+
+  // Choosing Assisted for the first time turns email on and uses this
+  // browser's timezone for send hours. Nothing sends until an inquiry type is picked.
+  function chooseReplyMode(mode: ReplyMode) {
+    if (mode === 'assisted' && !assisted.channels.email && !assisted.channels.sms && assisted.inquiryTypes.length === 0) {
+      let timezone = assisted.sendWindow.timezone
+      try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || timezone } catch {}
+      setAssisted(prev => ({ ...prev, channels: { ...prev.channels, email: true }, sendWindow: { ...prev.sendWindow, timezone } }))
+    }
+    setReplyMode(mode)
+  }
+
+  function toggleAssistedInquiry(key: string, on: boolean) {
+    setAssisted(prev => ({
+      ...prev,
+      inquiryTypes: on ? Array.from(new Set([...prev.inquiryTypes, key])) : prev.inquiryTypes.filter(k => k !== key),
+    }))
+  }
+
+  function toggleAssistedDay(day: number) {
+    setAssisted(prev => {
+      const days = prev.sendWindow.days.includes(day) ? prev.sendWindow.days.filter(d => d !== day) : [...prev.sendWindow.days, day].sort()
+      return { ...prev, sendWindow: { ...prev.sendWindow, days } }
+    })
+  }
 
   const watchingAll = watchedIds === null
   // Personal Inbox mailboxes are everything that is not a dedicated support inbox.
@@ -765,6 +816,13 @@ export default function CustomerServiceSettingsPage() {
                   rounded: 'rounded-t-lg',
                 },
                 {
+                  mode: 'assisted' as ReplyMode,
+                  icon: ShieldCheck,
+                  title: 'Assisted',
+                  desc: 'Noli answers the everyday messages you pick, like showing requests, during your hours. Anything about price, legal or loan questions, or anything it is unsure of, waits for you.',
+                  rounded: '',
+                },
+                {
                   mode: 'auto' as ReplyMode,
                   icon: Send,
                   title: 'Auto-send',
@@ -784,7 +842,7 @@ export default function CustomerServiceSettingsPage() {
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => setReplyMode(mode)}
+                    onClick={() => chooseReplyMode(mode)}
                     className={`w-full text-left flex items-center justify-between px-4 py-3 transition ${rounded} ${selected ? 'selected-card' : 'hover:bg-muted/30'}`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -799,6 +857,108 @@ export default function CustomerServiceSettingsPage() {
                 )
               })}
             </div>
+
+            {replyMode === 'assisted' && (
+              <div id="assisted" className="mt-3 rounded-lg border divide-y">
+                <div className="px-4 py-3 space-y-1.5">
+                  <p className="text-[12.5px] font-medium text-foreground/80">Send on their own by</p>
+                  <label className="flex items-center gap-2.5 min-h-10 sm:min-h-0 cursor-pointer">
+                    <input type="checkbox" checked={assisted.channels.email}
+                      onChange={e => setAssisted(prev => ({ ...prev, channels: { ...prev.channels, email: e.target.checked } }))}
+                      className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
+                    <span className="text-sm">Email</span>
+                  </label>
+                  {csSmsNumber.trim() ? (
+                    <label className="flex items-center gap-2.5 min-h-10 sm:min-h-0 cursor-pointer">
+                      <input type="checkbox" checked={assisted.channels.sms}
+                        onChange={e => setAssisted(prev => ({ ...prev, channels: { ...prev.channels, sms: e.target.checked } }))}
+                        className="size-4 rounded border-input accent-[#2563eb] shrink-0" />
+                      <span className="text-sm break-words min-w-0">Text messages to your support number ({csSmsNumber.trim()})</span>
+                    </label>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">To let Noli text replies too, add a support SMS number under Accounts.</p>
+                  )}
+                </div>
+
+                <div className="px-4 py-3">
+                  <p className="text-[12.5px] font-medium text-foreground/80">Messages Noli may answer on its own</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 mb-2">Everything else waits in your queue.</p>
+                  <div className="space-y-2">
+                    {assistedInquiryTypes.map(t => (
+                      <label key={t.key} className="flex items-start gap-2.5 min-h-10 sm:min-h-0 cursor-pointer">
+                        <input type="checkbox" checked={assisted.inquiryTypes.includes(t.key)}
+                          onChange={e => toggleAssistedInquiry(t.key, e.target.checked)}
+                          className="size-4 mt-0.5 rounded border-input accent-[#2563eb] shrink-0" />
+                        <span className="min-w-0">
+                          <span className="text-sm font-medium block">{t.label}</span>
+                          <span className="text-xs text-muted-foreground block">{t.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {assisted.inquiryTypes.length === 0 && (
+                    <p className="text-xs text-[#b45309] dark:text-[#fbbf24] mt-2">Nothing sends on its own until you pick at least one.</p>
+                  )}
+                </div>
+
+                <div className="px-4 py-3">
+                  <p className="text-[12.5px] font-medium text-foreground/80 mb-1.5">Send hours</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input type="time" value={assisted.sendWindow.start} aria-label="Send hours start"
+                      onChange={e => setAssisted(prev => ({ ...prev, sendWindow: { ...prev.sendWindow, start: e.target.value || prev.sendWindow.start } }))}
+                      className="rounded-md border bg-card px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <input type="time" value={assisted.sendWindow.end} aria-label="Send hours end"
+                      onChange={e => setAssisted(prev => ({ ...prev, sendWindow: { ...prev.sendWindow, end: e.target.value || prev.sendWindow.end } }))}
+                      className="rounded-md border bg-card px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                    <select value={assisted.sendWindow.timezone} aria-label="Timezone"
+                      onChange={e => setAssisted(prev => ({ ...prev, sendWindow: { ...prev.sendWindow, timezone: e.target.value } }))}
+                      className="min-w-0 max-w-full rounded-md border bg-card px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring">
+                      {Array.from(new Set([assisted.sendWindow.timezone, ...ASSISTED_TIMEZONES])).map(tz => (
+                        <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {WEEKDAY_LABELS.map((label, day) => {
+                      const on = assisted.sendWindow.days.includes(day)
+                      return (
+                        <button key={label} type="button" onClick={() => toggleAssistedDay(day)} aria-pressed={on}
+                          className={`min-h-9 rounded-md border px-2.5 text-xs transition ${on ? 'selected-card font-medium' : 'text-muted-foreground hover:bg-muted/30'}`}>
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">Outside these hours, replies wait for your approval.</p>
+                </div>
+
+                <div className="px-4 py-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">Automatic replies per contact per day</span>
+                    <input type="number" min={1} max={10} step={1} value={assisted.perContactDailyLimit}
+                      onChange={e => {
+                        const v = Math.round(Number(e.target.value))
+                        if (Number.isFinite(v)) setAssisted(prev => ({ ...prev, perContactDailyLimit: Math.min(10, Math.max(1, v)) }))
+                      }}
+                      className="w-24 rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                  </label>
+                  <label className="block">
+                    <span className="text-[12.5px] font-medium text-foreground/80 block mb-1.5">Confidence needed</span>
+                    <input type="number" min={0.5} max={1} step={0.05} value={assisted.minConfidence}
+                      onChange={e => {
+                        const v = Number(e.target.value)
+                        if (Number.isFinite(v)) setAssisted(prev => ({ ...prev, minConfidence: Math.min(1, Math.max(0.5, v)) }))
+                      }}
+                      className="w-24 rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                  </label>
+                </div>
+
+                <p className="px-4 py-3 text-[12.5px] text-muted-foreground">
+                  Noli always holds a reply for you when it mentions prices, fees or discounts, touches on legal, loan or tax questions, needs a Fair Housing review, matches one of your flag scenarios, or Noli is not sure. Every reply it sends on its own is logged on the contact&apos;s timeline.
+                </p>
+              </div>
+            )}
 
             {replyMode === 'hybrid' && (
               <div className="mt-3 rounded-lg border px-4 py-3">

@@ -118,10 +118,27 @@ export async function PUT(req: Request, ctx: any) {
             stage: pipeline_stage,
             previousStage: deal.pipeline_stage,
             status: status ?? deal.status,
+            changedAt: new Date().toISOString(),
           }, { persistent: true })
         }
       } catch {}
     }
+
+    // One `customers.deal.closed` per move into a won/closed status or stage
+    // (the marketing app's "just closed" handoff listens for it).
+    try {
+      const { emitDealClosedIfTransitioned } = await import('@open-mercato/core/modules/customers/lib/dealClosed')
+      await emitDealClosedIfTransitioned(container.resolve('eventBus') as Parameters<typeof emitDealClosedIfTransitioned>[0], {
+        id,
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        before: { status: deal.status ?? null, pipelineStage: deal.pipeline_stage ?? null },
+        after: {
+          status: status !== undefined ? status : (deal.status ?? null),
+          pipelineStage: pipeline_stage !== undefined ? pipeline_stage : (deal.pipeline_stage ?? null),
+        },
+      })
+    } catch {}
 
     // Affiliate deal-win attribution: when the deal transitions to won,
     // convert any pending affiliate referral for the deal's linked contacts

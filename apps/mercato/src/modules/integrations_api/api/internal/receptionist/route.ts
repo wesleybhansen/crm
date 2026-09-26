@@ -325,6 +325,22 @@ export async function POST(req: Request) {
           source: 'receptionist', lifecycleStage: 'prospect',
         }).catch(() => null)
       }
+      if (contactId) {
+        await knex('bookings').where('id', id).where('organization_id', page.organization_id).update({ contact_id: contactId }).catch(() => {})
+      }
+
+      // One calendar.booking.created for automations and sequences.
+      try {
+        const { emitBookingCreated } = await import('@/lib/crm-business-events')
+        await emitBookingCreated(container.resolve('eventBus') as Parameters<typeof emitBookingCreated>[0], {
+          id,
+          organizationId: page.organization_id,
+          tenantId: page.tenant_id,
+          createdAt: new Date().toISOString(),
+          bookingPageId: page.id,
+          contactId,
+        })
+      } catch {}
 
       return NextResponse.json({
         ok: true,

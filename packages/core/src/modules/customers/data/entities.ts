@@ -1348,11 +1348,14 @@ export class PipelineAutomationRun {
 // Customer Service feature: per-org config for the recurring engine that drafts
 // a reply for each new inbound customer inquiry. One row per org.
 // watched_connection_ids null/empty means "watch all active email connections".
-// reply_mode (Phase 3) is one of 'draft' | 'auto' | 'hybrid':
-//   draft  = always queue for approval (never auto-send)
-//   auto   = send every draft immediately
-//   hybrid = auto-send only when confidence >= hybrid_confidence_threshold AND
-//            the drafter marked the reply auto-send-safe; otherwise queue it.
+// reply_mode (Phase 3) is one of 'draft' | 'auto' | 'hybrid' | 'assisted':
+//   draft    = always queue for approval (never auto-send)
+//   auto     = send every draft immediately
+//   hybrid   = auto-send only when confidence >= hybrid_confidence_threshold AND
+//              the drafter marked the reply auto-send-safe; otherwise queue it.
+//   assisted = auto-send only the inquiry types the owner enabled, on the
+//              channels they enabled, when every safety gate passes
+//              (apps/mercato customers/lib/assisted-send.ts); else queue it.
 @Entity({ tableName: 'customer_service_settings' })
 @Unique({ name: 'customer_service_settings_organization_id_key', properties: ['organizationId'] })
 export class CustomerServiceSettings {
@@ -1366,6 +1369,7 @@ export class CustomerServiceSettings {
     | 'csSmsNumber'
     | 'csChatEnabled'
     | 'flagScenarios'
+    | 'assistedConfig'
     | 'createdAt'
     | 'updatedAt'
 
@@ -1429,6 +1433,14 @@ export class CustomerServiceSettings {
   // settings GET seeds the default scenario set so the UI can render the list.
   @Property({ name: 'flag_scenarios', type: 'json', nullable: true })
   flagScenarios?: Array<{ key: string; label: string; enabled: boolean; action: string; instructions: string }> | null
+
+  // Assisted reply mode settings (reply_mode 'assisted'):
+  //   { channels: { email, sms }, inquiryTypes: string[], minConfidence,
+  //     sendWindow: { start: 'HH:MM', end: 'HH:MM', timezone, days: 0..6[] },
+  //     perContactDailyLimit }
+  // null = never configured = defaults, with every channel off.
+  @Property({ name: 'assisted_config', type: 'json', nullable: true })
+  assistedConfig?: Record<string, unknown> | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

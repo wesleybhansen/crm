@@ -3,6 +3,7 @@ import type { EntityType, ActionType } from './triggers'
 import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { emitDealClosedIfTransitioned } from '../lib/dealClosed'
 
 export type PipelineAutomationRunOutcome =
   | 'applied'
@@ -93,7 +94,7 @@ export async function applyDealAction(
     .where('organization_id', ctx.organizationId)
     .where('tenant_id', ctx.tenantId)
     .whereNull('deleted_at')
-    .first('id', 'pipeline_id', 'pipeline_stage_id', 'pipeline_stage', 'title')
+    .first('id', 'pipeline_id', 'pipeline_stage_id', 'pipeline_stage', 'title', 'status')
   if (!deal) {
     return { outcome: 'failed', fromStage: null, toStage: null, error: 'deal not found' }
   }
@@ -179,6 +180,8 @@ export async function applyDealAction(
       title,
       stage: stageRow?.name ?? null,
       previousStage: deal.pipeline_stage,
+      status: deal.status ?? null,
+      changedAt: new Date().toISOString(),
     }, { persistent: true }).catch(() => {})
     await ctx.bus.emitEvent('customers.deal.auto_advanced', {
       id: args.dealId,
@@ -188,6 +191,13 @@ export async function applyDealAction(
       stageId: nextStageId,
       stage: stageRow?.name ?? null,
     }, { persistent: true }).catch(() => {})
+    await emitDealClosedIfTransitioned(ctx.bus, {
+      id: args.dealId,
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      before: { status: deal.status ?? null, pipelineStage: deal.pipeline_stage ?? null },
+      after: { status: deal.status ?? null, pipelineStage: stageRow?.name ?? null },
+    })
   }
 
   return { outcome: 'applied', fromStage: deal.pipeline_stage_id ?? null, toStage: nextStageId }

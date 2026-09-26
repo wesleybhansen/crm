@@ -58,7 +58,7 @@ function safeParse(s: any) {
   try { return JSON.parse(s) } catch { return null }
 }
 
-const VALID_MODES = new Set(['draft', 'auto', 'hybrid'])
+const VALID_MODES = new Set(['draft', 'auto', 'hybrid', 'assisted'])
 const VALID_KINDS = new Set(['model_answer', 'document'])
 const MAX_CONTENT_CHARS = 20000
 
@@ -233,7 +233,7 @@ function serializeKnowledgeRow(row: any) {
 const getSettingsTool: AiToolDefinition = {
   name: 'customer_service_get_settings',
   description: `Get the customer-service auto-reply configuration for the authenticated organization. Use this to see whether customer service is turned on, how replies are handled, and which email accounts are watched.
-Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, flagScenarios, createdAt, updatedAt }. Returns defaults if not yet set up.
+Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid|assisted), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, flagScenarios, createdAt, updatedAt }. Returns defaults if not yet set up.
 flagScenarios is the list of special situations the assistant watches for. Always includes the 6 canonical scenarios, plus any user-defined custom scenarios the org has added (their keys start with "custom_"): [{ key, label, enabled, action ("pause" = hold the reply for a human, "auto_send" = let the assistant reply per its instructions), instructions (extra guidance for that scenario) }]. Canonical keys: angry_or_upset, incoherent, cancel, refund, complaint, legal.`,
   inputSchema: z.object({}),
   requiredFeatures: ['email.view'],
@@ -252,7 +252,7 @@ flagScenarios is the list of special situations the assistant watches for. Alway
 const updateSettingsTool: AiToolDefinition = {
   name: 'customer_service_update_settings',
   description: `Set up or modify the customer-service auto-reply configuration for the authenticated organization. Upserts the single settings row. Only provided fields are changed; omitted fields keep their current value.
-replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1). This is the account-wide default.
+replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1), "assisted" auto-sends only the inquiry types, channels and send hours the owner chose in the Customer Service settings when every safety check passes (everything else waits for approval). This is the account-wide default.
 watchedConnectionIds: list of email connection ids to watch, or omit / pass an empty list to watch all active accounts.
 sourceModes: optional per-mailbox overrides, keyed by email connection id, e.g. { "<connectionId>": { "mode": "auto", "threshold": 0.8 } }. Each overrides the account default for that specific mailbox. Only ids in the watched list are kept. Threshold is clamped to 0..1. Omit to leave per-mailbox overrides unchanged.
 flagScenarios: optional list to turn special situations on/off, choose pause-vs-auto, and set per-scenario instructions. Pass an array of { key, label?, enabled?, action? ("pause"|"auto_send"), instructions? }. The 6 canonical keys (angry_or_upset, incoherent, cancel, refund, complaint, legal) always exist with fixed labels; a canonical scenario you omit from the array resets to its default (disabled + pause). You can ALSO add custom scenarios: give a key that starts with "custom_" (e.g. "custom_wholesale") AND a non-empty label; valid customs are kept and appended after the canonical set. Include an existing custom in the array to keep it; omit it to remove it. Unknown non-custom keys and customs missing a label are ignored. Omit the whole flagScenarios arg to leave scenarios unchanged.
@@ -260,10 +260,10 @@ Returns the saved settings.`,
   inputSchema: z.object({
     enabled: z.boolean().optional().describe('Turn customer service on or off'),
     watchedConnectionIds: z.array(z.string()).optional().describe('Email connection ids to watch; empty = all active accounts'),
-    replyMode: z.enum(['draft', 'auto', 'hybrid']).optional(),
+    replyMode: z.enum(['draft', 'auto', 'hybrid', 'assisted']).optional(),
     hybridConfidenceThreshold: z.number().optional().describe('Confidence cutoff for hybrid auto-send, 0..1'),
     sourceModes: z.record(z.string(), z.object({
-      mode: z.enum(['draft', 'auto', 'hybrid']),
+      mode: z.enum(['draft', 'auto', 'hybrid', 'assisted']),
       threshold: z.number().optional(),
     })).optional().describe('Per-mailbox overrides keyed by email connection id; overrides the account default for that mailbox'),
     flagScenarios: z.array(z.object({

@@ -166,8 +166,21 @@ export async function POST(req: Request) {
       } catch {}
     }
 
-    // Fire booking.created webhook. Calendar module has no events.ts so we
-    // dispatch inline instead of using the generic subscriber pattern.
+    // One calendar.booking.created for automations and sequences.
+    try {
+      const { emitBookingCreated } = await import('@/lib/crm-business-events')
+      await emitBookingCreated(container.resolve('eventBus') as Parameters<typeof emitBookingCreated>[0], {
+        id,
+        organizationId: page.organization_id,
+        tenantId: page.tenant_id,
+        createdAt: new Date().toISOString(),
+        bookingPageId,
+        contactId: bookingContactId,
+      })
+    } catch {}
+
+    // Fire booking.created webhook, inline (the outbound webhook predates the
+    // calendar.booking.created event).
     try {
       const { dispatchWebhook } = await import('@open-mercato/core/modules/webhooks/lib/dispatch')
       dispatchWebhook(knex, page.organization_id, 'booking.created', {
