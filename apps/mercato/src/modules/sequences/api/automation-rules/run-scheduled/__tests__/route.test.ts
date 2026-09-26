@@ -13,6 +13,7 @@ jest.mock('@/modules/email/lib/email-router', () => ({
 }))
 
 import { createFakeDb } from '../../../../../../lib/__tests__/support/fake-db'
+import * as automationExecute from '@/modules/sequences/lib/automation-execute'
 import { POST, metadata, runScheduledRulesForOrg } from '../route'
 
 const SECRET = 'cron-secret-for-tests'
@@ -125,5 +126,16 @@ describe('run-scheduled route', () => {
     ])
     expect(knex.db.tables.tasks).toHaveLength(1)
     expect([first.results[0]!.skipped, second.results[0]!.skipped].sort()).toEqual([false, true])
+  })
+
+  it('a failing delayed-step pass never fails the scheduled run', async () => {
+    const knex = world()
+    const spy = jest.spyOn(automationExecute, 'processScheduledSteps').mockRejectedValueOnce(new Error('relation "automation_scheduled_steps" does not exist'))
+    const res = await call({}, SECRET)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.data.delayedSteps.error).toMatch(/does not exist/)
+    expect(knex.db.tables.tasks).toHaveLength(2)
+    spy.mockRestore()
   })
 })

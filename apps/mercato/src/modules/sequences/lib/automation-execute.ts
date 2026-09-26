@@ -665,7 +665,7 @@ export async function processScheduledSteps(knex: any, opts: { organizationId?: 
 
       // Look up the rule to ensure it is still active
       const rule = scheduled.rule_id
-        ? await knex('automation_rules').where('id', scheduled.rule_id).first()
+        ? await knex('automation_rules').where('id', scheduled.rule_id).where('organization_id', scheduled.organization_id).first()
         : null
 
       if (rule && !rule.is_active) {

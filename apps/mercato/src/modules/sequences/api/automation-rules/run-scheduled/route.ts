@@ -458,9 +458,16 @@ export async function POST(req: Request) {
       }
     }
 
-    const delayedSteps = dryRun
-      ? { processed: 0, total: 0, dryRun: true }
-      : await processScheduledSteps(knex, onlyOrg ? { organizationId: onlyOrg } : {})
+    // The delayed-step pass never fails the scheduled run it follows.
+    let delayedSteps: Record<string, unknown> = { processed: 0, total: 0, dryRun: true }
+    if (!dryRun) {
+      try {
+        delayedSteps = await processScheduledSteps(knex, onlyOrg ? { organizationId: onlyOrg } : {})
+      } catch (err) {
+        console.error('[run-scheduled] delayed steps failed', err)
+        delayedSteps = { processed: 0, total: 0, error: err instanceof Error ? err.message : 'failed' }
+      }
+    }
 
     const ran = organizations.flatMap((o) => o.results).filter((r) => !r.skipped)
     console.log('[run-scheduled] service run', {
