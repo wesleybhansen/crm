@@ -1,0 +1,30 @@
+# crm.noliai.com background jobs (rewritten 2026-09-26)
+# Secrets live in /root/crm-cron/secrets.env (chmod 600). Wrappers source them.
+# Do NOT inline tokens here. Every job records its outcome through
+# /root/crm-cron/lib.sh: logs/runs-<date>.log, logs/failures-<date>.log,
+# state/<job>.status; cron-health.sh folds them into /root/backups/status.json
+# (cron_health) and logs/failure-summary-<date>.txt.
+* * * * * /root/crm-cron/reminders-process.sh
+*/5 * * * * /root/crm-cron/sequences-process.sh
+*/30 * * * * /root/crm-cron/email-intelligence.sh
+*/10 * * * * /root/crm-cron/automation-rules.sh
+0 3 * * * /root/crm-cron/run.sh db-backup /root/backups/db-backup.sh
+# AI feature crons (gated by SEQUENCE_PROCESS_SECRET)
+0 * * * * /root/crm-cron/ai-classify-sentiment.sh
+0 14 * * * /root/crm-cron/ai-relationship-decay.sh
+0 12 * * * /root/crm-cron/ai-meeting-prep.sh
+*/15 * * * * /root/crm-cron/ai-customer-service.sh
+*/15 * * * * /root/crm-cron/ai-inbox.sh
+0 13 * * * /root/crm-cron/ai-digest.sh
+*/5 * * * * /root/crm-cron/cs-scheduled-send.sh
+*/15 * * * * /root/crm-cron/personal-inbox-sync.sh
+30 3 * * * /root/crm-cron/run.sh gtm-threads-tokens sh -c '/root/crm-cron/gtm-threads-tokens.sh >> /root/crm-cron/gtm-threads-tokens.log 2>&1'
+30 4 1 * * /root/crm-cron/run.sh restore-drill /root/backups/restore-drill.sh
+*/5 * * * * /root/crm-cron/outbound-events-drain.sh
+# Booking and event reminders (once per booking/attendee and window; added 2026-09-26)
+*/5 * * * * /root/crm-cron/booking-reminders.sh
+*/5 * * * * /root/crm-cron/event-reminders.sh
+# TLS renewal for crm.noliai.com (twice daily; reloads nginx when renewed). Added 2026-09-26.
+37 4,16 * * * /root/crm-cron/certbot-renew.sh
+# Cron health: fold job outcomes into /root/backups/status.json (hourly). Added 2026-09-26.
+17 * * * * /root/crm-cron/cron-health.sh
