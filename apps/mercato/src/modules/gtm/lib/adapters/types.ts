@@ -143,6 +143,10 @@ export type CandidateIdentity = {
   // A business listing's own public phone and website (Maps rows).
   phone?: string | null
   website?: string | null
+  // A business listing's public Google rating (1-5) and review count (Maps
+  // rows). Used only to break ties between equally checked prospects.
+  rating?: number | null
+  review_count?: number | null
   urls?: string[]
   location?: string | null
   // Frozen provider targeting provenance is distinct from the returned
