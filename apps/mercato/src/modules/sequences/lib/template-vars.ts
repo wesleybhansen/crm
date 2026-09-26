@@ -73,6 +73,10 @@ export function substituteTemplateVars(text: string, ctx: TemplateVarContext): s
 
   const values: Record<string, string> = {
     'firstName': firstName,
+    // {{name}} and {{email}}: the sequence editor's own tokens (its email step
+    // fills them itself; the SMS step goes through here).
+    'name': fullName || firstName,
+    'email': (contact.email || '').trim(),
     'contact.first_name': firstName,
     'contact.last_name': (contact.last_name || '').trim(),
     'contact.full_name': fullName || firstName,

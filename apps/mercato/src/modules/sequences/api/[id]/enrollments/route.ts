@@ -45,6 +45,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
           + " AND sse.result->>'waiting' IS NOT NULL"
           + ' ORDER BY sse.created_at DESC LIMIT 1) as waiting_reason',
         ),
+        // The latest step that was skipped with a reason (a Send SMS step with
+        // no Twilio connected, or no mobile number): the enrollment moved on,
+        // and this says what did not go out.
+        knex.raw(
+          "(SELECT sse.result->>'reason' FROM sequence_step_executions sse"
+          + " WHERE sse.enrollment_id = se.id AND sse.status = 'skipped'"
+          + " AND sse.result->>'skipped' = 'true'"
+          + ' ORDER BY sse.executed_at DESC NULLS LAST LIMIT 1) as skipped_reason',
+        ),
       )
       .orderBy('se.enrolled_at', 'desc')
 
