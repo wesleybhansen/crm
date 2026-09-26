@@ -14,7 +14,7 @@ jest.mock('@/modules/email/lib/email-router', () => ({
 
 import { createFakeDb } from '../../../../../../lib/__tests__/support/fake-db'
 import * as automationExecute from '@/modules/sequences/lib/automation-execute'
-import { POST, metadata, runScheduledRulesForOrg } from '../route'
+import { POST, metadata, runScheduledRulesForOrg, scheduleTargetIds } from '../route'
 
 const SECRET = 'cron-secret-for-tests'
 
@@ -82,6 +82,9 @@ describe('run-scheduled route', () => {
       ['org-b', 'tenant-b'],
     ])
     expect(knex.db.tables.automation_rule_logs).toHaveLength(2)
+    // The daily-summary placeholder is not a contact (it hit a uuid column in production).
+    expect(tasks.every((t: Record<string, unknown>) => t.contact_id === null)).toBe(true)
+    expect(knex.db.tables.automation_rule_logs.every((l: Record<string, unknown>) => l.contact_id === null)).toBe(true)
     const body = await res.json()
     expect(body.data.organizations).toHaveLength(2)
     expect(body.data.delayedSteps).toMatchObject({ processed: 0 })
@@ -137,5 +140,13 @@ describe('run-scheduled route', () => {
     expect(body.data.delayedSteps.error).toMatch(/does not exist/)
     expect(knex.db.tables.tasks).toHaveLength(2)
     spy.mockRestore()
+  })
+
+  it('maps each scheduled target to its real records', () => {
+    expect(scheduleTargetIds('inactive_contacts', { id: 'c-1' })).toEqual({ contactId: 'c-1' })
+    expect(scheduleTargetIds('invoice_overdue', { id: 'inv-1', contact_id: 'c-2' })).toEqual({ contactId: 'c-2', invoiceId: 'inv-1' })
+    expect(scheduleTargetIds('stale_deals', { id: 'deal-1' })).toEqual({ contactId: null, dealId: 'deal-1' })
+    expect(scheduleTargetIds('daily_summary', { id: 'summary' })).toEqual({ contactId: null })
+    expect(scheduleTargetIds('custom', { id: 'trigger' })).toEqual({ contactId: null })
   })
 })
