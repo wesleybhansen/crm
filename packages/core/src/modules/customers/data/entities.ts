@@ -1347,7 +1347,8 @@ export class PipelineAutomationRun {
 
 // Customer Service feature: per-org config for the recurring engine that drafts
 // a reply for each new inbound customer inquiry. One row per org.
-// watched_connection_ids null/empty means "watch all active email connections".
+// watched_connection_ids lists the mailboxes the engine answers; null/empty means
+// NO mailbox (no email is drafted until one is ticked), never "all mailboxes".
 // reply_mode (Phase 3) is one of 'draft' | 'auto' | 'hybrid' | 'assisted':
 //   draft    = always queue for approval (never auto-send)
 //   auto     = send every draft immediately

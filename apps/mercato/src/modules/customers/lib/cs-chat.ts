@@ -5,6 +5,7 @@ import { generateReplyDraft } from '@/modules/customers/lib/draft-reply'
 import type { FlagScenarioInput } from '@/modules/customers/lib/draft-reply'
 import { sendChatReply } from '@/modules/customers/lib/send-chat-reply'
 import { meterCustomersAi } from '@/lib/usage/meter'
+import { resolveFlagAlertRecipient } from './cs-mailboxes'
 
 // Brief acknowledgement posted to the live visitor when a flag scenario pauses
 // the reply for human review. No em dash; ends with a period.
@@ -70,12 +71,13 @@ async function sendChatFlagAlert(
   d: { contactName: string; reasons: Array<{ key: string; label: string }>; preview: string },
 ) {
   try {
-    const recipient = await knex('email_connections')
-      .where('organization_id', orgId)
-      .where('is_active', true)
-      .orderBy('is_primary', 'desc')
-      .first()
-    if (!recipient?.email_address) return
+    // Never a mailbox Customer Service reads (the alert would be fetched back
+    // as a support ticket): a personal mailbox, else the owner's sign-in email.
+    const recipient = await resolveFlagAlertRecipient(knex, { orgId, tenantId })
+    if (!recipient) {
+      console.warn('[flag-alert] skipped: no recipient outside the monitored mailboxes', { orgId })
+      return
+    }
 
     const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const queueUrl = `${appUrl.replace(/\/$/, '')}/backend/customer-service/queue`
@@ -93,7 +95,7 @@ async function sendChatFlagAlert(
     `.trim()
 
     // From Noli to its user: the platform sender, never the user's own mailbox.
-    const sent = await sendPlatformNotification({ to: recipient.email_address, subject, htmlBody })
+    const sent = await sendPlatformNotification({ to: recipient, subject, htmlBody })
     if (!sent.ok) console.error('[flag-alert] not sent', { orgId, error: sent.error })
   } catch (err) {
     console.error('[cs-chat] flag alert email failed', { orgId, err })

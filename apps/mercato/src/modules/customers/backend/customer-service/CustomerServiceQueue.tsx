@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Inbox, Send, X, Loader2, Settings, ChevronDown, ChevronUp, Mail, MessageSquare, Globe, Clock, FileEdit, Flag } from 'lucide-react'
+import { fillResponseTemplate } from '../../lib/response-templates'
 
 type Bucket = { total: number; email: number; sms: number; chat?: number }
 type StatusMap = { drafted: Bucket; sent: Bucket; pending: Bucket; dismissed: Bucket }
@@ -219,6 +220,25 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetup }
   const [errors, setErrors] = useState<Record<string, string>>({})
   // Which items have the full incoming email expanded, keyed by item id.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // Saved replies (Settings, Response templates) that can replace a draft.
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; body_text: string }>>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/response-templates', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (!cancelled && d?.ok) setTemplates(d.data || []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  function applyTemplate(item: QueueItem, templateId: string) {
+    const t = templates.find(x => x.id === templateId)
+    if (!t) return
+    const current = (drafts[item.id] ?? '').trim()
+    if (current && current !== (item.body || '').trim() && !confirm('Replace your edited reply with this template?')) return
+    setDrafts(prev => ({ ...prev, [item.id]: fillResponseTemplate(t.body_text, { name: item.contact.name, email: item.contact.email }) }))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -408,7 +428,21 @@ export default function CustomerServiceQueue({ needsSetup = false, onGoToSetup }
 
             {/* Editable drafted reply */}
             <div className="px-4 py-3">
-              <label className="text-[12px] text-foreground/80 font-medium block mb-1.5">Drafted reply</label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="text-[12px] text-foreground/80 font-medium">Drafted reply</label>
+                {templates.length > 0 && (
+                  <select
+                    value=""
+                    onChange={e => { if (e.target.value) applyTemplate(item, e.target.value) }}
+                    disabled={!!itemBusy}
+                    aria-label="Use a saved template"
+                    className="min-w-0 max-w-[60%] min-h-10 sm:min-h-0 rounded-md border bg-card px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="">Use a template...</option>
+                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                )}
+              </div>
               <textarea
                 value={drafts[item.id] ?? ''}
                 onChange={e => setDrafts(prev => ({ ...prev, [item.id]: e.target.value }))}

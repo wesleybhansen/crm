@@ -13,6 +13,7 @@ import crypto from 'crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildDefaultSignature } from '@/modules/customers/lib/draft-reply'
 import { ASSISTED_INQUIRY_TYPES, DEFAULT_ASSISTED_CONFIG, normalizeAssistedConfig } from '@/modules/customers/lib/assisted-send'
+import { parseWatchedConnectionIds } from '@/modules/customers/lib/cs-mailboxes'
 
 const VALID_MODES = new Set(['draft', 'auto', 'hybrid', 'assisted'])
 
@@ -134,14 +135,13 @@ function parseSourceModes(raw: any): Record<string, { mode: string; threshold: n
 
 // Build the stored source_modes map from client input, keeping only entries for
 // connections that are actually in the watched list and with valid mode/threshold.
-function normalizeSourceModesInput(input: any, watched: string[] | null): Record<string, { mode: string; threshold: number }> {
+function normalizeSourceModesInput(input: any, watched: string[]): Record<string, { mode: string; threshold: number }> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
-  // watched === null means "watch all"; we can't constrain to ids, so accept any.
-  const allowed = watched && watched.length > 0 ? new Set(watched) : null
+  const allowed = new Set(watched)
   const out: Record<string, { mode: string; threshold: number }> = {}
   for (const [k, v] of Object.entries(input)) {
     if (typeof k !== 'string' || !k) continue
-    if (allowed && !allowed.has(k)) continue
+    if (!allowed.has(k)) continue
     if (!v || typeof v !== 'object') continue
     const mode = (v as any).mode
     if (!VALID_MODES.has(mode)) continue
@@ -166,7 +166,7 @@ function normalizeE164(v: unknown): string | null {
 function serialize(row: any, defaultSignature = '') {
   if (!row) {
     // No saved row: seed the default flag-scenario list so the UI shows it.
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, csChatEnabled: false, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })), assisted: normalizeAssistedConfig(null), assistedInquiryTypes: ASSISTED_INQUIRY_CATALOG, defaultSignature }
+    return { enabled: false, watchedConnectionIds: [], replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, csSmsNumber: null, csChatEnabled: false, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })), assisted: normalizeAssistedConfig(null), assistedInquiryTypes: ASSISTED_INQUIRY_CATALOG, defaultSignature }
   }
   // Saved row: overlay the user's scenarios onto the canonical defaults. Falls
   // back to the full default seed when nothing usable has been saved yet.
@@ -174,7 +174,8 @@ function serialize(row: any, defaultSignature = '') {
   return {
     id: row.id,
     enabled: !!row.enabled,
-    watchedConnectionIds: row.watched_connection_ids ?? null,
+    // The ticked mailboxes. Empty = none: no email is drafted until one is ticked.
+    watchedConnectionIds: parseWatchedConnectionIds(row.watched_connection_ids),
     replyMode: row.reply_mode || 'draft',
     hybridConfidenceThreshold: row.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
     sourceModes: parseSourceModes(row.source_modes),
@@ -200,11 +201,11 @@ function serialize(row: any, defaultSignature = '') {
 // GET: load the org's customer service config (returns defaults if no row yet)
 export async function GET() {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.tenantId || !auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
-    const row = await knex('customer_service_settings').where('organization_id', auth.orgId).first()
+    const row = await knex('customer_service_settings').where('organization_id', auth.orgId).where('tenant_id', auth.tenantId).first()
     // Resolve the org's business name (same source brand voice uses) to build a
     // default sign-off the UI can prepopulate when no signature is saved.
     const bpRow = await knex('business_profiles').where('organization_id', auth.orgId).select('business_name').first()
@@ -225,16 +226,25 @@ export async function PUT(req: Request) {
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json().catch(() => ({}))
 
-    const existing = await knex('customer_service_settings').where('organization_id', auth.orgId).first()
+    const existing = await knex('customer_service_settings').where('organization_id', auth.orgId).where('tenant_id', auth.tenantId).first()
 
-    // Normalize watchedConnectionIds to a string[] or null (null = all active).
-    let watched: string[] | null = existing?.watched_connection_ids ?? null
+    // The ticked mailboxes, as a list of connection ids. An empty list (or
+    // anything that is not a list) means NO mailbox: Customer Service drafts no
+    // email until at least one is ticked. Ids that are not this org's own
+    // mailboxes are dropped. Omitted in the body = keep the saved list.
+    let watched: string[] = parseWatchedConnectionIds(existing?.watched_connection_ids)
     if (body.watchedConnectionIds !== undefined) {
-      if (Array.isArray(body.watchedConnectionIds)) {
-        const cleaned = body.watchedConnectionIds.filter((v: unknown) => typeof v === 'string' && v.length > 0)
-        watched = cleaned.length > 0 ? cleaned : null
+      const requested = parseWatchedConnectionIds(body.watchedConnectionIds)
+      if (requested.length === 0) {
+        watched = []
       } else {
-        watched = null
+        const owned = await knex('email_connections')
+          .where('organization_id', auth.orgId)
+          .where('tenant_id', auth.tenantId)
+          .whereIn('id', requested)
+          .select('id')
+        const ownedIds = new Set(owned.map((c: { id: string }) => String(c.id)))
+        watched = requested.filter((id) => ownedIds.has(id))
       }
     }
 
@@ -261,10 +271,8 @@ export async function PUT(req: Request) {
     } else {
       sourceModes = parseSourceModes(existing?.source_modes)
       // Drop overrides for any connection no longer watched.
-      if (watched && watched.length > 0) {
-        const allowed = new Set(watched)
-        sourceModes = Object.fromEntries(Object.entries(sourceModes).filter(([k]) => allowed.has(k)))
-      }
+      const allowed = new Set(watched)
+      sourceModes = Object.fromEntries(Object.entries(sourceModes).filter(([k]) => allowed.has(k)))
     }
 
     // Dedicated customer-service SMS number. Omitted in the body = keep existing;
@@ -301,11 +309,10 @@ export async function PUT(req: Request) {
       : !!existing?.cs_chat_enabled
 
     // Auto-derive `enabled` instead of trusting a client toggle. The feature is
-    // active whenever at least one mailbox is being watched OR a dedicated
+    // active whenever at least one mailbox is ticked OR a dedicated
     // customer-service SMS number is configured OR the website chat is handled by
-    // Customer Service. watched === null means "watch all connected support
-    // inboxes", which also counts as active.
-    const hasWatched = watched === null || (Array.isArray(watched) && watched.length > 0)
+    // Customer Service. Nothing ticked is not "every mailbox".
+    const hasWatched = watched.length > 0
     const enabled = (hasWatched || !!csSmsNumber || csChatEnabled) ? true : false
 
     // flag_scenarios: clamp/validate the client list onto the canonical default
@@ -328,7 +335,7 @@ export async function PUT(req: Request) {
 
     const fields = {
       enabled,
-      watched_connection_ids: watched ? JSON.stringify(watched) : null,
+      watched_connection_ids: JSON.stringify(watched),
       reply_mode: replyMode,
       hybrid_confidence_threshold: hybridConfidenceThreshold,
       source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,
@@ -341,7 +348,7 @@ export async function PUT(req: Request) {
     }
 
     if (existing) {
-      await knex('customer_service_settings').where('id', existing.id).update(fields)
+      await knex('customer_service_settings').where('id', existing.id).where('tenant_id', auth.tenantId).update(fields)
     } else {
       await knex('customer_service_settings').insert({
         id: crypto.randomUUID(),
@@ -352,7 +359,7 @@ export async function PUT(req: Request) {
       })
     }
 
-    const updated = await knex('customer_service_settings').where('organization_id', auth.orgId).first()
+    const updated = await knex('customer_service_settings').where('organization_id', auth.orgId).where('tenant_id', auth.tenantId).first()
     return NextResponse.json({ ok: true, data: serialize(updated) })
   } catch (error) {
     console.error('[customer-service.settings.put]', error)

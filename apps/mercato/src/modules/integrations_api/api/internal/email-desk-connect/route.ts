@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercato/shared/lib/encryption/secretColumns'
+import { parseWatchedConnectionIds } from '../../../../customers/lib/cs-mailboxes'
 
 /* Internal endpoint for the Noli COS "email desk" (the Chief of Staff's own
  * mailbox). The hub registers the desk's IMAP/SMTP credentials here so the
@@ -11,8 +12,10 @@ import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercat
  * the Hermes email adapter handles on the instance, never correspondence).
  *
  * op=connect    -> upsert the email_connections row (purpose customer_service)
- *                  + ensure customer_service_settings (draft mode) + add the
- *                  owner (and the desk itself) to settings.skip_senders.
+ *                  + ensure customer_service_settings (draft mode) + tick the
+ *                  desk mailbox (Customer Service answers ticked mailboxes
+ *                  only) + add the owner (and the desk itself) to
+ *                  settings.skip_senders.
  * op=disconnect -> deactivate the desk's connection row.
  * Auth: Bearer NOLI_INTERNAL_SERVICE_SECRET (mirrors email-send). */
 
@@ -100,11 +103,14 @@ export async function POST(req: Request) {
       .where('email_address', address)
       .where('purpose', 'customer_service')
       .first()
+    let deskConnectionId: string
     if (existing) {
+      deskConnectionId = String(existing.id)
       await knex('email_connections').where('id', existing.id).update(record)
     } else {
+      deskConnectionId = crypto.randomUUID()
       await knex('email_connections').insert({
-        id: crypto.randomUUID(),
+        id: deskConnectionId,
         tenant_id: auth.tenantId,
         organization_id: auth.orgId,
         user_id: auth.userId,
@@ -128,9 +134,11 @@ export async function POST(req: Request) {
         ? settings.skip_senders
         : (typeof settings.skip_senders === 'string' ? JSON.parse(settings.skip_senders || '[]') : [])
       const merged = Array.from(new Set([...cur, ...skipAdd]))
+      const watched = parseWatchedConnectionIds(settings.watched_connection_ids)
+      if (!watched.includes(deskConnectionId)) watched.push(deskConnectionId)
       await knex('customer_service_settings')
         .where('id', settings.id)
-        .update({ skip_senders: JSON.stringify(merged), enabled: true, updated_at: new Date() })
+        .update({ skip_senders: JSON.stringify(merged), watched_connection_ids: JSON.stringify(watched), enabled: true, updated_at: new Date() })
     } else {
       await knex('customer_service_settings').insert({
         id: crypto.randomUUID(),
@@ -138,6 +146,7 @@ export async function POST(req: Request) {
         organization_id: auth.orgId,
         enabled: true,
         reply_mode: 'draft',
+        watched_connection_ids: JSON.stringify([deskConnectionId]),
         skip_senders: JSON.stringify(skipAdd),
         created_at: new Date(),
         updated_at: new Date(),
