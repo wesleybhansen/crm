@@ -638,11 +638,13 @@ async function executeSteps(
 // Scheduled Steps Processor
 // ---------------------------------------------------------------------------
 
-export async function processScheduledSteps(knex: any) {
+export async function processScheduledSteps(knex: any, opts: { organizationId?: string | null } = {}) {
   const now = new Date()
-  const pendingSteps = await knex('automation_scheduled_steps')
+  let pendingQuery = knex('automation_scheduled_steps')
     .where('status', 'pending')
     .where('execute_at', '<=', now)
+  if (opts.organizationId) pendingQuery = pendingQuery.where('organization_id', opts.organizationId)
+  const pendingSteps = await pendingQuery
     .orderBy('execute_at', 'asc')
     .limit(50)
 

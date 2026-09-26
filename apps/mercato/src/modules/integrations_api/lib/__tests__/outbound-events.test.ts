@@ -265,7 +265,7 @@ describe('the buyer as client (default loader)', () => {
   })
   afterAll(() => jest.restoreAllMocks())
 
-  function buyerWorld(unsubscribes: Array<Record<string, unknown>>) {
+  function buyerWorld(unsubscribes: Array<Record<string, unknown>>, preferences: Array<Record<string, unknown>> = []) {
     const knex = createFakeDb(
       {
         integrations_api_outbound_events: [],
@@ -273,6 +273,7 @@ describe('the buyer as client (default loader)', () => {
         customer_deal_people: [{ id: 'l1', deal_id: DEAL, person_entity_id: 'c-1', created_at: new Date('2026-09-01') }],
         customer_entities: [{ id: 'c-1', organization_id: ORG, primary_email: 'Dana@Example.com', display_name: 'Dana Buyer', deleted_at: null }],
         email_unsubscribes: unsubscribes,
+        email_preferences: preferences,
       },
       { integrations_api_outbound_events: [['organization_id', 'event_type', 'subject_id'], ['event_id']] },
     )
@@ -305,6 +306,36 @@ describe('the buyer as client (default loader)', () => {
   it('sends the buyer when they have not opted out', async () => {
     const body = await sendWith(buyerWorld([]))
     expect(body.client).toEqual({ name: 'Dana Buyer', email: 'dana@example.com' })
+  })
+
+  it('leaves the buyer out when they opted out of any email category', async () => {
+    const optedOut = [{ organization_id: ORG, contact_id: 'c-1', category_slug: 'newsletter', opted_in: false, deleted_at: null }]
+    expect((await sendWith(buyerWorld([], optedOut))).client).toBeUndefined()
+    const optedIn = [{ organization_id: ORG, contact_id: 'c-1', category_slug: 'newsletter', opted_in: true, deleted_at: null }]
+    expect((await sendWith(buyerWorld([], optedIn))).client).toEqual({ name: 'Dana Buyer', email: 'dana@example.com' })
+  })
+
+  it('keeps retrying while the AMS endpoint is not live yet (404)', async () => {
+    const knex = outboxDb()
+    await enqueueDealClosed(knex as never, { organizationId: ORG, tenantId: TENANT, dealId: DEAL, closedAt: CLOSED_AT }, CLOSED_AT)
+    const notLive = jest.fn().mockResolvedValue({ ok: false, status: 404 })
+    const clock = { now: new Date('2026-09-28T17:00:05.000Z') }
+    const d = {
+      fetchImpl: notLive,
+      now: () => clock.now,
+      secret: () => 's',
+      baseUrl: () => 'https://ams.example.test',
+      resolveOwner: async () => ({ noliUserId: 'u', linked: true }),
+      hasAmsEntitlement: async () => true,
+      loadDeal: async () => closedDeal(),
+    }
+    await drainOutboundEvents(knex as never, { deps: d })
+    const row = knex.db.tables.integrations_api_outbound_events[0]
+    expect(row).toMatchObject({ status: 'pending', last_status_code: 404 })
+    clock.now = new Date(new Date(row.next_attempt_at).getTime() + 1)
+    d.fetchImpl = jest.fn().mockResolvedValue({ ok: true, status: 200 })
+    await drainOutboundEvents(knex as never, { deps: d })
+    expect(row.status).toBe('delivered')
   })
 
   it('leaves the buyer out once they unsubscribed (by contact or by address)', async () => {

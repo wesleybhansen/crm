@@ -44,6 +44,7 @@ class Builder {
   private orders: Array<{ col: string; dir: 'asc' | 'desc' }> = []
   private joins: Array<{ table: string; alias: string; left: string; right: string }> = []
   private countAlias: string | null = null
+  private distinctCols: string[] | null = null
   private pendingInsert: Row[] | null = null
   private conflictCols: string[] | null = null
   private returningCols: string[] | null = null
@@ -110,6 +111,11 @@ class Builder {
   whereNotIn(col: string, vals: any[]) { return this.add(false, (r) => !vals.includes(this.get(r, col))) }
   orWhereIn(col: string, vals: any[]) { return this.add(true, (r) => vals.includes(this.get(r, col))) }
   whereRaw(sql: string, bindings: any[] = []) {
+    const isNull = /^(\w+)->>'(\w+)' is null$/i.exec(sql.trim())
+    if (isNull) {
+      const [, col, key] = isNull
+      return this.add(false, (r) => parseJson(this.get(r, col!))?.[key!] == null)
+    }
     const m = /^(\w+)->>'(\w+)' = (\?|'[^']*')$/.exec(sql.trim())
     if (!m) throw new Error(`fake-db: unsupported whereRaw: ${sql}`)
     const [, col, key, rhs] = m
@@ -127,6 +133,7 @@ class Builder {
   orderBy(col: string, dir: 'asc' | 'desc' = 'asc') { this.orders.push({ col, dir }); return this }
   limit(n: number) { this.lim = n; return this }
   select(...cols: any[]) { this.cols = cols.flat(); return this }
+  distinct(...cols: any[]) { this.cols = cols.flat(); this.distinctCols = cols.flat(); return this }
   count(spec: string) {
     const m = /\s+as\s+(\w+)$/i.exec(spec)
     this.countAlias = m ? m[1]! : 'count'
@@ -233,7 +240,17 @@ class Builder {
     try {
       if (this.pendingInsert) return Promise.resolve(resolve(this.runInsert()))
       if (this.countAlias) return Promise.resolve(resolve([{ [this.countAlias]: this.rows().length }]))
-      return Promise.resolve(resolve(this.rows().map((r) => this.project(r, this.cols))))
+      let projected = this.rows().map((r) => this.project(r, this.cols))
+      if (this.distinctCols) {
+        const seen = new Set<string>()
+        projected = projected.filter((r) => {
+          const key = JSON.stringify(this.distinctCols!.map((c) => r[c.split('.').pop()!]))
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+      }
+      return Promise.resolve(resolve(projected))
     } catch (e) {
       return reject ? Promise.resolve(reject(e)) : Promise.reject(e)
     }

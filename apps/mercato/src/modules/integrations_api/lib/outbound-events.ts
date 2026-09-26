@@ -29,8 +29,13 @@ import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/
  *
  * `client` (the buyer, for AMS's past-client list) goes only on a buyer or
  * both-sides deal with a property address, and only when the contact has not
- * opted out of email in this CRM (email_unsubscribes); AMS cannot see CRM
- * opt-outs, so an unreadable opt-out list leaves it out.
+ * opted out of email here: no global unsubscribe (email_unsubscribes) and no
+ * category opt-out (email_preferences). AMS cannot see CRM opt-outs, so an
+ * unreadable opt-out list leaves it out.
+ *
+ * A 404 (AMS endpoint not live yet), 401 (secret being fixed), 429 and 5xx
+ * all retry with the same eventId: nothing is dropped for a condition that
+ * can clear on its own.
  *
  * Relative imports only: subscribers can be bundled into workers.
  */
@@ -256,6 +261,13 @@ async function loadDealClient(knex: Knex, row: OutboundRow, em: unknown): Promis
     })
     .first('id')
   if (optOut) return null
+  const categoryOptOut = await knex('email_preferences')
+    .where('organization_id', row.organization_id)
+    .where('contact_id', contact.id)
+    .where('opted_in', false)
+    .whereNull('deleted_at')
+    .first('id')
+  if (categoryOptOut) return null
   const name = cleanText(contact.display_name, 200)
   return name ? { name, email } : { email }
 }
