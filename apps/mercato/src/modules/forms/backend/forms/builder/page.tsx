@@ -15,6 +15,7 @@ import {
   Upload, SeparatorHorizontal, Copy, X, Loader2,
 } from 'lucide-react'
 import { defaultCrmMappingFor } from '../../../lib/field-defaults'
+import { BLANK_FORM_SETTINGS, formCapturesEmail } from '../../../lib/settings-defaults'
 
 // ── Template helper ──
 function getTemplateFields(templateId: string): { name: string; fields: any[]; settings: any } | null {
@@ -59,7 +60,8 @@ function getTemplateFields(templateId: string): { name: string; fields: any[]; s
   const uid = () => Math.random().toString(36).substring(2) + Date.now().toString(36)
   const t = templates[templateId]
   if (!t) return null
-  return { name: t.name, fields: t.fields.map((f: any, i: number) => ({ ...f, id: uid(), order: i, required: f.required ?? false, width: f.width ?? 'full' })), settings: { submitLabel: 'Submit', successMessage: 'Thank you!', createContact: false, ...t.settings } }
+  // Contact creation defaults ON when the template captures an email.
+  return { name: t.name, fields: t.fields.map((f: any, i: number) => ({ ...f, id: uid(), order: i, required: f.required ?? false, width: f.width ?? 'full' })), settings: { submitLabel: 'Submit', successMessage: 'Thank you!', createContact: formCapturesEmail(t.fields), ...t.settings } }
 }
 
 // ── Types ──
@@ -288,7 +290,7 @@ export default function FormBuilderPage() {
             submission_count: 0,
             fields: templateData?.fields || [],
             theme: { ...DEFAULT_THEME },
-            settings: templateData?.settings || { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: false },
+            settings: templateData?.settings || { ...BLANK_FORM_SETTINGS },
             created_at: '',
             updated_at: '',
           }

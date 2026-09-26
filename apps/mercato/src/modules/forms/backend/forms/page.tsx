@@ -9,6 +9,7 @@ import {
   MoreHorizontal, Pencil, ExternalLink, FileText, Mail, Phone,
   Star, MessageSquare, Calendar, Briefcase, Users, Zap,
 } from 'lucide-react'
+import { formCapturesEmail } from '../../lib/settings-defaults'
 
 type Form = {
   id: string
@@ -80,7 +81,7 @@ const templates: Template[] = [
       { type: 'phone', label: 'Phone', placeholder: '+1 (555) 000-0000', required: false, width: 'full', crm_mapping: 'contact.phone' },
       { type: 'long_text', label: 'Message', placeholder: 'How can we help you?', required: true, width: 'full' },
     ],
-    settings: { submitLabel: 'Send Message', successMessage: 'Thank you! We\'ll be in touch soon.' },
+    settings: { submitLabel: 'Send Message', successMessage: 'Thank you! We\'ll be in touch soon.', createContact: true },
   },
   {
     id: 'quote_request',
@@ -118,7 +119,7 @@ const templates: Template[] = [
       { type: 'select', label: 'Preferred Time', required: true, width: 'half', options: ['Morning (9-12)', 'Afternoon (12-3)', 'Evening (3-6)'] },
       { type: 'long_text', label: 'What would you like to discuss?', placeholder: 'Brief description of your needs...', required: false, width: 'full' },
     ],
-    settings: { submitLabel: 'Book Consultation', successMessage: 'Your consultation request has been received! We\'ll confirm your time slot via email.' },
+    settings: { submitLabel: 'Book Consultation', successMessage: 'Your consultation request has been received! We\'ll confirm your time slot via email.', createContact: true },
   },
   {
     id: 'customer_feedback',
@@ -135,7 +136,7 @@ const templates: Template[] = [
       { type: 'long_text', label: 'What did you like most?', placeholder: 'Tell us what went well...', required: false, width: 'full' },
       { type: 'long_text', label: 'What could we improve?', placeholder: 'How can we do better?', required: false, width: 'full' },
     ],
-    settings: { submitLabel: 'Submit Feedback', successMessage: 'Thank you for your feedback! It helps us improve.' },
+    settings: { submitLabel: 'Submit Feedback', successMessage: 'Thank you for your feedback! It helps us improve.', createContact: true },
   },
   {
     id: 'newsletter_signup',
@@ -185,7 +186,7 @@ const templates: Template[] = [
       { type: 'long_text', label: 'Description', placeholder: 'Provide as much detail as possible...', required: true, width: 'full' },
       { type: 'file', label: 'Attachments', required: false, width: 'full' },
     ],
-    settings: { submitLabel: 'Submit Ticket', successMessage: 'Your support request has been submitted. We\'ll respond within 24 hours.' },
+    settings: { submitLabel: 'Submit Ticket', successMessage: 'Your support request has been submitted. We\'ll respond within 24 hours.', createContact: true },
   },
   {
     id: 'lead_capture',
@@ -297,7 +298,8 @@ export default function FormsListPage() {
       const body = {
         name: template.name,
         fields: template.fields.map((f, i) => ({ ...f, id: uid(), order: i })),
-        settings: { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: false, ...(template.settings || {}) },
+        // Contact creation defaults ON when the template captures an email.
+        settings: { submitLabel: 'Submit', successMessage: 'Thank you for your submission!', createContact: formCapturesEmail(template.fields), ...(template.settings || {}) },
         theme: { primaryColor: '#2563eb', font: 'Inter', corners: 'rounded', background: '#ffffff' },
         templateId: template.id,
       }
@@ -331,7 +333,9 @@ export default function FormsListPage() {
         body: JSON.stringify({
           name: `${form.name} (Copy)`,
           fields: form.fields,
-          settings: form.settings,
+          // A copy behaves like the original: carry its effective contact
+          // setting explicitly so the new-form default does not flip it.
+          settings: { ...(form.settings || {}), createContact: form.settings?.createContact === true },
           theme: form.theme,
         }),
       })
