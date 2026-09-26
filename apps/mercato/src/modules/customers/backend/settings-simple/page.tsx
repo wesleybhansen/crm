@@ -477,7 +477,7 @@ export default function SimpleSettingsPage() {
     setSavingPersona(false)
   }
 
-  async function savePipelineStages(stages: Array<{ name: string }>) {
+  async function savePipelineStages(stages: Array<{ name: string }>, stageRenames?: Array<{ from: string; to: string }>) {
     setSavingStages(true)
     setStagesSaved(false)
     try {
@@ -485,7 +485,8 @@ export default function SimpleSettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ pipelineStages: stages }),
+        // stageRenames moves the renamed stage's deals and contacts with it.
+        body: JSON.stringify(stageRenames ? { pipelineStages: stages, stageRenames } : { pipelineStages: stages }),
       })
       setPipelineStages(stages)
       setStagesSaved(true)
@@ -526,11 +527,12 @@ export default function SimpleSettingsPage() {
     if (editingStageIndex === null) return
     const name = editingStageName.trim()
     if (!name) return
+    const previousName = pipelineStages[editingStageIndex]?.name
     const updated = [...pipelineStages]
     updated[editingStageIndex] = { name }
     setEditingStageIndex(null)
     setEditingStageName('')
-    savePipelineStages(updated)
+    savePipelineStages(updated, previousName && previousName !== name ? [{ from: previousName, to: name }] : [])
   }
 
   function cancelEditStage() {

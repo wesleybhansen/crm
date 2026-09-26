@@ -145,7 +145,7 @@ When editing/deleting, use the id= values from the CRM DATA section below. You c
     // Load CRM data context
     const [contactCount, dealCount, taskCount, invoiceCount, sequences, emailLists, landingPages, forms, bookingPages] = await Promise.all([
       queryOne('SELECT count(*)::int as total FROM customer_entities WHERE organization_id = $1 AND deleted_at IS NULL AND kind = $2', [orgId, 'person']),
-      queryOne('SELECT count(*)::int as total, count(*) filter (where status IS NULL or status NOT IN ($2,$3))::int as open_count, coalesce(sum(value_amount),0)::numeric as total_value FROM customer_deals WHERE organization_id = $1 AND deleted_at IS NULL', [orgId, 'win', 'lose']),
+      queryOne('SELECT count(*)::int as total, count(*) filter (where status IS NULL or NOT (status = ANY($2::text[])))::int as open_count, coalesce(sum(value_amount),0)::numeric as total_value FROM customer_deals WHERE organization_id = $1 AND deleted_at IS NULL', [orgId, ['win', 'won', 'lost', 'loose', 'lose']]),
       queryOne('SELECT count(*) filter (where is_done = false)::int as open, count(*) filter (where is_done = true)::int as done FROM tasks WHERE organization_id = $1', [orgId]),
       queryOne('SELECT count(*)::int as total FROM invoices WHERE organization_id = $1', [orgId]),
       query('SELECT id, name, is_active FROM sequences WHERE organization_id = $1 LIMIT 10', [orgId]).catch(() => []),

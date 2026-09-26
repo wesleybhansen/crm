@@ -4,6 +4,7 @@ import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encr
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { emitDealClosedIfTransitioned } from '../lib/dealClosed'
+import { statusForStageMove } from '../lib/dealStatus'
 
 export type PipelineAutomationRunOutcome =
   | 'applied'
@@ -150,6 +151,10 @@ export async function applyDealAction(
   const stageRow = nextStageId
     ? await ctx.knex('customer_pipeline_stages').where('id', nextStageId).first('name')
     : null
+  // Moving into a Won/Lost stage marks the deal won/lost (out of one reopens
+  // it), as a drag on the pipeline board does.
+  const impliedStatus = statusForStageMove(deal.status ?? null, stageRow?.name ?? null)
+  const nextStatus: string | null = impliedStatus ?? deal.status ?? null
 
   await ctx.knex('customer_deals')
     .where('id', args.dealId)
@@ -159,6 +164,7 @@ export async function applyDealAction(
       pipeline_stage_id: nextStageId,
       pipeline_id: nextPipelineId,
       pipeline_stage: stageRow?.name ?? null,
+      ...(impliedStatus ? { status: impliedStatus } : {}),
       updated_at: new Date(),
     })
 
@@ -180,7 +186,7 @@ export async function applyDealAction(
       title,
       stage: stageRow?.name ?? null,
       previousStage: deal.pipeline_stage,
-      status: deal.status ?? null,
+      status: nextStatus,
       changedAt: new Date().toISOString(),
     }, { persistent: true }).catch(() => {})
     await ctx.bus.emitEvent('customers.deal.auto_advanced', {
@@ -196,7 +202,7 @@ export async function applyDealAction(
       organizationId: ctx.organizationId,
       tenantId: ctx.tenantId,
       before: { status: deal.status ?? null, pipelineStage: deal.pipeline_stage ?? null },
-      after: { status: deal.status ?? null, pipelineStage: stageRow?.name ?? null },
+      after: { status: nextStatus, pipelineStage: stageRow?.name ?? null },
     })
   }
 
