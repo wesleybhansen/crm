@@ -29,11 +29,16 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
       // one lane per stage name from the workspace's business profile
       // (built-in defaults when none is set), placing each open deal by its
       // stage label. Name the fixture stages after lanes that board shows.
-      const profile = await page.evaluate(async () => {
+      // Read it from the board page itself (the route authenticates by the
+      // session cookie); the dashboard login lands on may still navigate.
+      await page.goto('/backend/customers/deals/pipeline');
+      const profileRead = await page.evaluate(async () => {
         const res = await fetch('/api/customers/business-profile', { credentials: 'include' });
         const body = await res.json().catch(() => null);
-        return (body?.data ?? null) as { pipeline_mode?: string | null; pipeline_stages?: unknown } | null;
+        return { status: res.status, data: (body?.data ?? null) as { pipeline_mode?: string | null; pipeline_stages?: unknown } | null };
       });
+      expect(profileRead.status, 'business profile read').toBe(200);
+      const profile = profileRead.data;
       expect(profile?.pipeline_mode ?? 'deals', 'the pipeline board must be in deals mode').toBe('deals');
       let boardStages = ['New Lead', 'Contacted', 'Qualified', 'Proposal', 'Negotiation', 'Won', 'Lost'];
       const rawStages = typeof profile?.pipeline_stages === 'string'
