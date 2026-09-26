@@ -55,7 +55,16 @@ export async function POST(req: Request) {
 
     if (action === 'remove' && contactId && body.tagId) {
       // Remove tag from contact (org-scoped — can't touch another tenant's assignment)
-      await knex('customer_tag_assignments').where('entity_id', contactId).where('organization_id', auth.orgId).where('tag_id', body.tagId).del()
+      const removed = await knex('customer_tag_assignments').where('entity_id', contactId).where('organization_id', auth.orgId).where('tag_id', body.tagId).del()
+      // "Tag removed" automations: nothing fired them before.
+      if (Number(removed) > 0) {
+        const removedTag = await knex('customer_tags').where('id', body.tagId).where('organization_id', auth.orgId).first()
+        if (removedTag) {
+          executeAutomationRules(knex, auth.orgId, auth.tenantId, 'tag_removed', {
+            contactId, tagId: removedTag.id, tagSlug: removedTag.slug, tagName: removedTag.label,
+          }).catch(() => {})
+        }
+      }
       return NextResponse.json({ ok: true })
     }
 
@@ -105,17 +114,18 @@ export async function POST(req: Request) {
       })
     }
 
-    // Check sequence triggers for tag assignment
+    // Check sequence triggers for tag assignment. The tag pickers save the
+    // tag's id, recipes its slug: pass both (plus the label) to the matcher.
     if (!existing) {
       checkSequenceTriggers(knex, auth.orgId, auth.tenantId, 'tag_added', {
-        contactId, tagSlug: slug,
+        contactId, tagId: tag.id, tagSlug: tag.slug || slug, tagName: tag.label || tag.name,
       }).catch(() => {})
     }
 
     // Fire automation rules for tag addition
     if (!existing) {
       executeAutomationRules(knex, auth.orgId, auth.tenantId, 'tag_added', {
-        contactId, tagSlug: slug, tagName: tag.label || tag.name,
+        contactId, tagId: tag.id, tagSlug: tag.slug || slug, tagName: tag.label || tag.name,
       }).catch(() => {})
     }
 

@@ -743,7 +743,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         slug: 'cedar-creek-retreat',
         title: 'Cedar Creek Retreat Expansion',
         description: 'New wellness center build-out including retail area and treatment rooms.',
-        status: 'loose',
+        status: 'lost',
         pipelineStage: 'loose',
         valueAmount: 98000,
         valueCurrency: 'USD',
@@ -2258,7 +2258,7 @@ async function seedCustomerStressTest(
       const dealId = randomUUID()
       const valueAmount = toAmount(monetaryBase + randomInt(0, 7500))
       const expectedCloseAt =
-        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
+        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'lost'
           ? randomPastDate(120)
           : randomFutureDate(120)
       const dealRow: CustomerDealRow = {

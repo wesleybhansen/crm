@@ -1,17 +1,31 @@
+import { matchesSequenceTrigger } from '../lib/automation-trigger-match'
+
 /**
  * Check for active sequences matching a trigger event and auto-enroll the contact.
  * Called from form submission, tag assignment, deal stage change, etc.
+ *
+ * Relative imports only: the dispatch subscribers bundle this into the queue workers.
  */
 export async function checkSequenceTriggers(
   knex: any,
   orgId: string,
   tenantId: string,
   triggerType: string,
-  context: { contactId: string; tagSlug?: string; stage?: string; formId?: string }
+  context: {
+    contactId: string
+    tagId?: string
+    tagSlug?: string
+    tagName?: string
+    stage?: string
+    formId?: string
+    bookingPageId?: string | null
+    source?: string | null
+  }
 ) {
   try {
     const sequences = await knex('sequences')
       .where('organization_id', orgId)
+      .where('tenant_id', tenantId)
       .where('trigger_type', triggerType)
       .where('status', 'active')
       .whereNull('deleted_at')
@@ -21,10 +35,8 @@ export async function checkSequenceTriggers(
         ? (typeof sequence.trigger_config === 'string' ? JSON.parse(sequence.trigger_config) : sequence.trigger_config)
         : {}
 
-      // Check trigger config matches
-      if (triggerType === 'tag_added' && config.tagSlug && config.tagSlug !== context.tagSlug) continue
-      if (triggerType === 'deal_stage_changed' && config.stage && config.stage !== context.stage) continue
-      if (triggerType === 'form_submit' && config.formId && config.formId !== context.formId) continue
+      // Check trigger config matches (a picked tag is saved by id, recipes save its slug)
+      if (!matchesSequenceTrigger(triggerType, config, context)) continue
 
       // Check not already enrolled
       const existing = await knex('sequence_enrollments')

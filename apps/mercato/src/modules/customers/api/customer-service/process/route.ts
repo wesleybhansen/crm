@@ -4,7 +4,7 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
-import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
+import { platformSenderAddress, sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -32,6 +32,16 @@ import {
   splitMatchedScenarios,
 } from '@/modules/customers/lib/assisted-send'
 import type { AssistedConfig, AssistedReason } from '@/modules/customers/lib/assisted-send'
+import {
+  extractEmailAddresses,
+  isPlatformNotificationSender,
+  matchWatchedMailbox,
+  parseWatchedConnectionIds,
+  resolveFlagAlertRecipient,
+} from '@/modules/customers/lib/cs-mailboxes'
+import type { WatchedMailbox } from '@/modules/customers/lib/cs-mailboxes'
+import { decideStandardAutoSend, parseSourceModes } from '@/modules/customers/lib/cs-send-decision'
+import { extractCommitmentsForContact } from '@/modules/customers/lib/commitments'
 
 // Hard cap on conversations processed per org per run.
 const BATCH_PER_ORG = 25
@@ -140,6 +150,10 @@ export async function POST(req: Request) {
             for (const sk of skipSenders) {
               if (typeof sk === 'string' && sk) ownEmails.add(sk.toLowerCase())
             }
+            // Noli's own notifications (flag alerts, digests) are never customer
+            // mail: skip them at ingest so one can never become a ticket.
+            const platformFromEmail = platformSenderEmail()
+            if (platformFromEmail) ownEmails.add(platformFromEmail)
 
             for (const conn of csConns) {
               try {
@@ -184,45 +198,49 @@ export async function POST(req: Request) {
           continue
         }
 
-        // Resolve watched connection email addresses (null/empty = all active).
-        const watchedIds: string[] | null = Array.isArray(settings.watched_connection_ids)
-          ? settings.watched_connection_ids
-          : (settings.watched_connection_ids ? safeParse(settings.watched_connection_ids) : null)
-
-        // {id, address} for each watched connection. Used both to filter
-        // conversations (by inbound to_address) and to resolve the per-source
-        // override for the matched connection. null = watching all mailboxes.
-        let watched: Array<{ id: string; address: string }> | null = null
-        let watchedAddresses: string[] | null = null
-        if (watchedIds && watchedIds.length > 0) {
+        // The mailboxes Customer Service answers: ONLY the ones the owner
+        // ticked, and only while they are still connected. Nothing ticked means
+        // no mailbox (it used to mean every connected mailbox, which drafted
+        // replies to personal mail). {id, address} is used both to filter
+        // conversations and to resolve the per-source override.
+        const watchedIds = parseWatchedConnectionIds(settings.watched_connection_ids)
+        let watched: WatchedMailbox[] = []
+        if (watchedIds.length > 0) {
           const conns = await knex('email_connections')
             .where('organization_id', orgId)
+            .where('tenant_id', tenantId)
+            .where('is_active', true)
+            .whereNull('deleted_at')
             .whereIn('id', watchedIds)
             .select('id', 'email_address')
           watched = conns
             .map((c: any) => ({ id: c.id, address: (c.email_address || '').toLowerCase() }))
-            .filter((c: any) => c.address)
-          watchedAddresses = watched.map((c) => c.address)
-          // Watching specific connections that no longer exist means nothing to do.
-          if (watchedAddresses.length === 0) {
-            results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0, skippedAutomated: 0, failed: 0 })
-            continue
-          }
+            .filter((c: WatchedMailbox) => c.address)
         }
 
+        // Dedicated customer-service SMS number for this org (E.164-normalized).
+        // When set, inbound SMS conversations addressed to it are drafted too.
+        const csSmsNumber = normalizeE164(settings.cs_sms_number)
+
+        // No mailbox ticked and no support SMS number: nothing here to draft.
+        if (watched.length === 0 && !csSmsNumber) {
+          results.push({ orgId, mode, candidates: 0, queued: 0, autoSent: 0, skipped: 0, skippedAutomated: 0, failed: 0 })
+          continue
+        }
+        const platformFrom = platformSenderAddress()
+
         // New inbound inquiries: open conversations, last message inbound, not yet drafted.
+        // With no mailbox ticked only support SMS is in scope, so email
+        // conversations are left alone entirely.
         const conversations = await knex('inbox_conversations')
           .where('organization_id', orgId)
           .where('tenant_id', tenantId)
           .where('status', 'open')
           .where('last_message_direction', 'inbound')
           .whereNull('cs_drafted_at')
+          .modify((q: any) => { if (watched.length === 0) q.where('last_message_channel', 'sms') })
           .orderBy('last_message_at', 'desc')
           .limit(BATCH_PER_ORG)
-
-        // Dedicated customer-service SMS number for this org (E.164-normalized).
-        // When set, inbound SMS conversations addressed to it are drafted too.
-        const csSmsNumber = normalizeE164(settings.cs_sms_number)
 
         // Hourly cap for IMMEDIATE (no-hold) auto-sends. Held sends are capped in
         // the scheduled-send pass; this bounds the hold=0 path so an auto-mode org
@@ -311,24 +329,25 @@ export async function POST(req: Request) {
               skippedAutomated++
               continue
             }
-
-            // Watched-connection filter: the inbound message must have been
-            // addressed to one of the watched connection addresses. (Conversations
-            // are not tied to a connection, so we match on the inbound to_address.)
-            // Also capture WHICH watched connection it matched, so we can apply a
-            // per-source override below.
-            const toAddr = (inbound.to_address || '').toLowerCase()
-            let matchedConnId: string | null = null
-            if (watched) {
-              const hit = watched.find((c) => toAddr.includes(c.address))
-              if (!hit) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
-              matchedConnId = hit.id
+            // Noli's own notification (a flag alert, a digest) is never a ticket,
+            // whatever address it is sent from.
+            if (isPlatformNotificationSender(inbound.from_address, platformFrom)) {
+              await markDrafted(knex, conv.id, orgId)
+              skippedAutomated++
+              continue
             }
+
+            // Watched-mailbox filter: the inbound message must have arrived on a
+            // ticked mailbox (by ingesting connection, else exact To address).
+            // Mail to any other mailbox, personal mail included, is not ours.
+            // The match also picks the per-source override below.
+            const hit = matchWatchedMailbox(inbound, watched)
+            if (!hit) { await markDrafted(knex, conv.id, orgId); skipped++; continue }
+            const matchedConnId: string | null = hit.id
 
             // Resolve the effective mode + threshold for this conversation:
             // per-source override if the matched connection has one, else the
-            // org-wide default. If we couldn't match a specific connection
-            // (watching all, or no to_address match), use the global default.
+            // org-wide default.
             let effMode = mode
             let effThreshold = hybridThreshold
             if (matchedConnId && sourceModes[matchedConnId]) {
@@ -478,29 +497,18 @@ export async function POST(req: Request) {
               shouldAutoSend = decision.send
               if (!decision.send) assistedHold = decision.reasons
             } else {
-              if (effMode === 'auto') {
-                // Never auto-send a draft whose envelope did not parse (confidence 0):
-                // that text is a raw-model salvage and has had no review at all.
-                shouldAutoSend = result.confidence > 0
-              } else if (effMode === 'hybrid') {
-                shouldAutoSend = result.autoSendSafe === true && result.confidence >= effThreshold
-              }
-
-              // Flag override: pause wins over everything; all-auto_send forces send.
-              if (flagOutcome) {
-                shouldAutoSend = flagOutcome.shouldPause ? false : true
-              }
-
-              // Audience 'pause' (e.g. VIP customers): always hold for review, whatever
-              // the reply mode or content flags say.
-              if (audiencePause) shouldAutoSend = false
-              // Audience 'auto_send' (trusted senders): in hybrid mode, treat as
-              // auto-send-safe (skip the confidence gate). Never overrides a content
-              // pause, and draft mode still holds everything. The kill switch + hourly
-              // cap downstream still apply.
-              if (senderMatch.action === 'auto_send' && effMode === 'hybrid' && !flagOutcome?.shouldPause) {
-                shouldAutoSend = true
-              }
+              // Draft never sends (not even for a flag scenario set to
+              // auto-send); auto sends parsed drafts; hybrid sends confident,
+              // safe ones. Flag pause and a review-first audience always hold.
+              // The kill switch + hourly cap downstream still apply.
+              shouldAutoSend = decideStandardAutoSend({
+                mode: effMode,
+                confidence: result.confidence,
+                autoSendSafe: result.autoSendSafe === true,
+                threshold: effThreshold,
+                flag: flagOutcome,
+                audienceAction: senderMatch.action,
+              })
             }
 
             // Common flag metadata for the proposal/action rows.
@@ -543,6 +551,7 @@ export async function POST(req: Request) {
                 flag: flagMeta,
                 autoSchedule: { scheduledSendAt: new Date(Date.now() + holdMinutes * 60000).toISOString() },
                 assisted: assistedMeta,
+                source: { connectionId: matchedConnId, mode: effMode },
               })
               await markDrafted(knex, conv.id, orgId)
               queued++
@@ -622,6 +631,18 @@ export async function POST(req: Request) {
               await markDrafted(knex, conv.id, orgId)
               queued++
             }
+
+            // Pull any promises (ours or theirs) out of this contact's recent
+            // mail so meeting prep and the contact show them. Same allowance
+            // gate and key as the draft; at most one call per new message (the
+            // extractor skips contacts with no mail newer than its last run).
+            await extractInboundCommitments(knex, aiKey, {
+              orgId,
+              tenantId,
+              contactId,
+              inboundMessageId: inbound.id,
+              byoKey: !!gate.byoApiKey,
+            })
 
             // Flag alert: when this message was flagged, email the org user. Done
             // after the proposal is recorded so the queue link resolves to it.
@@ -846,13 +867,17 @@ async function handleSmsConversation(
     if (!decision.send) assistedHold = decision.reasons
     else if (autoPaused) assistedHold = [{ key: 'paused', label: 'Automatic sending is paused' }]
   } else {
-    if (mode === 'auto') shouldAutoSend = true
-    else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
-    if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
-    // Audience identity actions: 'pause' always holds; 'auto_send' relaxes the hybrid
-    // gate (never over a content pause; draft mode still holds).
-    if (senderMatch.action === 'pause') shouldAutoSend = false
-    if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) shouldAutoSend = true
+    // Same rule as email: draft never sends, whatever a flag scenario says.
+    shouldAutoSend = decideStandardAutoSend({
+      mode,
+      confidence: result.confidence,
+      autoSendSafe: result.autoSendSafe === true,
+      threshold: hybridThreshold,
+      flag: flagOutcome,
+      audienceAction: senderMatch.action,
+    })
+    // The kill switch holds SMS too (email checks it downstream).
+    if (autoPaused) shouldAutoSend = false
   }
   const assistedMeta = assisted ? { inquiryTypes: split.inquiryTypes, reasons: assistedHold ?? [] } : undefined
 
@@ -935,25 +960,6 @@ function parseMetadata(raw: any): { headers?: Record<string, string> } | null {
   return obj
 }
 
-// Per-source override map keyed by email_connection id. jsonb may arrive parsed
-// or as a string depending on the driver path; coerce + validate either way.
-function parseSourceModes(raw: any): Record<string, { mode: string; threshold: number }> {
-  let obj: any = raw
-  if (typeof obj === 'string') {
-    try { obj = JSON.parse(obj) } catch { return {} }
-  }
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
-  const out: Record<string, { mode: string; threshold: number }> = {}
-  for (const [k, v] of Object.entries(obj)) {
-    if (!v || typeof v !== 'object') continue
-    const mode = (v as any).mode
-    if (!VALID_MODES.has(mode)) continue
-    const t = Number((v as any).threshold)
-    out[k] = { mode, threshold: Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : DEFAULT_HYBRID_THRESHOLD }
-  }
-  return out
-}
-
 type FlagAction = 'pause' | 'auto_send' | 'no_draft'
 // audience: 'anyone' | 'new' | 'existing' | 'aud:team' | 'aud:<audienceId>'
 type FlagScenario = { key: string; label: string; enabled: boolean; action: FlagAction; instructions: string; audience?: string }
@@ -1017,8 +1023,8 @@ function resolveFlagOutcome(matchedKeys: string[], scenarios: FlagScenario[]): {
 }
 
 // Email the org user a flag alert from the platform sender (never their own mailbox)
-// (same user-notification path the AI digest cron uses) and sends to the org's
-// primary active email connection address (the org owner's mailbox). No new env
+// (same user-notification path the AI digest cron uses). The recipient is never
+// a mailbox Customer Service reads (see resolveFlagAlertRecipient). No new env
 // var: APP_URL is already set for link building. Best-effort: never throws.
 async function sendFlagAlert(
   knex: any,
@@ -1034,12 +1040,13 @@ async function sendFlagAlert(
   },
 ) {
   try {
-    const recipient = await knex('email_connections')
-      .where('organization_id', orgId)
-      .where('is_active', true)
-      .orderBy('is_primary', 'desc')
-      .first()
-    if (!recipient?.email_address) return
+    // Never a mailbox Customer Service reads (the alert would come back as a
+    // ticket): a personal mailbox, else the owner's sign-in email, else skip.
+    const recipient = await resolveFlagAlertRecipient(knex, { orgId, tenantId })
+    if (!recipient) {
+      console.warn('[flag-alert] skipped: no recipient outside the monitored mailboxes', { orgId })
+      return
+    }
 
     const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const queueUrl = `${appUrl.replace(/\/$/, '')}/backend/customer-service/queue`
@@ -1062,7 +1069,7 @@ async function sendFlagAlert(
     `.trim()
 
     // From Noli to its user: the platform sender, never the user's own mailbox.
-    const sent = await sendPlatformNotification({ to: recipient.email_address, subject, htmlBody })
+    const sent = await sendPlatformNotification({ to: recipient, subject, htmlBody })
     if (!sent.ok) console.error('[flag-alert] not sent', { orgId, error: sent.error })
   } catch (err) {
     console.error('[customer-service.process] flag alert email failed', { orgId, err })
@@ -1074,6 +1081,39 @@ async function markDrafted(knex: any, conversationId: string, orgId: string) {
     .where('id', conversationId)
     .where('organization_id', orgId)
     .update({ cs_drafted_at: new Date() })
+}
+
+// The bare address of Noli's notification sender ("Noli <n@noliai.com>" -> n@noliai.com).
+function platformSenderEmail(): string | null {
+  return extractEmailAddresses(platformSenderAddress() ?? '')[0] ?? null
+}
+
+// Commitment extraction for the contact behind an inbound message. Metered
+// like the draft (the extractor never meters itself); the idempotency key ties
+// the charge to the message so a retried run can never bill it twice.
+// Best-effort: a failure here never affects the drafted reply.
+async function extractInboundCommitments(
+  knex: any,
+  aiKey: string,
+  d: { orgId: string; tenantId: string; contactId: string; inboundMessageId: string | null; byoKey: boolean },
+) {
+  try {
+    const ext = await extractCommitmentsForContact(knex, aiKey, d.orgId, d.tenantId, d.contactId, {
+      sourceRef: d.inboundMessageId,
+    })
+    if (ext.tokensIn > 0 || ext.tokensOut > 0) {
+      void meterCustomersAi({ orgId: d.orgId }, {
+        model: ext.model,
+        tokensIn: ext.tokensIn,
+        tokensOut: ext.tokensOut,
+        feature: 'commitments-extract',
+        byoKey: d.byoKey,
+        idempotencyKey: d.inboundMessageId ? `cs-commitments:${d.inboundMessageId}` : null,
+      })
+    }
+  } catch (err) {
+    console.error('[customer-service.process] commitment extraction failed', { orgId: d.orgId, err })
+  }
 }
 
 // Reuses the inbox-proposal review mechanism: a synthetic inbox_emails row, an
@@ -1105,6 +1145,9 @@ async function createDraftProposal(
     autoSchedule?: { scheduledSendAt: string }
     // Assisted mode: the inquiry types matched and, for a draft, why it waits.
     assisted?: { inquiryTypes: string[]; reasons: AssistedReason[] }
+    // The mailbox it came in on and the reply mode that applied, so the
+    // scheduled-send pass can re-check the mode before a held reply goes out.
+    source?: { connectionId: string | null; mode: string }
   },
 ) {
   const now = new Date()
@@ -1178,6 +1221,7 @@ async function createDraftProposal(
       flagReasons: d.flag?.flagReasons || [],
       auto_scheduled: Boolean(d.autoSchedule),
       scheduled_send_at: d.autoSchedule?.scheduledSendAt ?? null,
+      ...(d.source ? { source_connection_id: d.source.connectionId, reply_mode: d.source.mode } : {}),
       ...(d.assisted ? { assisted: { inquiryTypes: d.assisted.inquiryTypes, holdReasons: d.assisted.reasons } } : {}),
     }),
     created_at: now,

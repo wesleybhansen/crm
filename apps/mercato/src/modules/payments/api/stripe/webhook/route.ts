@@ -11,6 +11,7 @@ import {
   releaseLandingPageCheckout,
 } from '../../../services/public-checkout'
 import { insertContactNote } from '../../../../customers/lib/contact-notes'
+import { paidEnrollmentRow, sendEnrollmentEmailOnce } from '../../../../courses/lib/enrollment-email'
 
 export const metadata = { POST: { requireAuth: false } }
 
@@ -409,33 +410,45 @@ export async function POST(req: Request) {
       // action (PATCH /api/affiliates/[id] with { referralId, action: 'reverse' }).
 
       // ── Course enrollment on payment ──
+      // Runs after the payment is recorded above (payment_records, unique per
+      // checkout session), so a redelivered event never reaches this block.
       if (meta.type === 'course' && meta.courseId && meta.studentEmail) {
         try {
           const courseId = meta.courseId
           const studentName = meta.studentName || meta.studentEmail
-          const studentEmail = meta.studentEmail.toLowerCase()
+          const studentEmail = meta.studentEmail.trim().toLowerCase()
+          const courseTenantId = String(tenantId || meta.tenantId)
+          const courseOrgId = String(orgId || meta.orgId)
+
+          // The course must be this organization's own.
+          const paidCourse = await knex('courses')
+            .where('id', courseId)
+            .where('tenant_id', courseTenantId)
+            .where('organization_id', courseOrgId)
+            .first('id', 'title')
 
           // Check not already enrolled
-          const existingEnrollment = await knex('course_enrollments')
+          const existingEnrollment = paidCourse ? await knex('course_enrollments')
+            .where('tenant_id', courseTenantId)
+            .where('organization_id', courseOrgId)
             .where('course_id', courseId)
             .where('student_email', studentEmail)
             .where('status', 'active')
-            .first()
+            .first() : null
 
-          if (!existingEnrollment) {
+          if (!paidCourse) {
+            console.error(`[stripe.webhook] course enrollment skipped: course ${courseId} not found in org ${courseOrgId}`)
+          } else if (!existingEnrollment) {
             const enrollmentId = require('crypto').randomUUID()
-            await knex('course_enrollments').insert({
-              id: enrollmentId,
-              tenant_id: tenantId || meta.tenantId,
-              organization_id: orgId || meta.orgId,
-              course_id: courseId,
-              student_name: studentName,
-              student_email: studentEmail,
-              contact_id: null,
-              payment_id: session.payment_intent || null,
-              status: 'active',
-              enrolled_at: new Date(),
-            })
+            await knex('course_enrollments').insert(paidEnrollmentRow({
+              enrollmentId,
+              tenantId: courseTenantId,
+              organizationId: courseOrgId,
+              courseId,
+              studentName,
+              studentEmail,
+              paymentRecordId,
+            }))
 
             // Create/link CRM contact with Student tag
             let contactId: string | null = null
@@ -464,6 +477,20 @@ export async function POST(req: Request) {
                 const tagLink = await knex('customer_entity_tags').where('entity_id', contactId).where('tag_id', tag.id).first()
                 if (!tagLink) await knex('customer_entity_tags').insert({ id: require('crypto').randomUUID(), entity_id: contactId, tag_id: tag.id, created_at: new Date() })
               } catch { /* non-critical */ }
+            }
+
+            // The same "You're enrolled!" email free students get, once per
+            // enrollment (course_enrollments.welcome_email_sent_at).
+            const emailResult = await sendEnrollmentEmailOnce(knex, {
+              enrollmentId,
+              tenantId: courseTenantId,
+              organizationId: courseOrgId,
+              studentEmail,
+              courseTitle: String(paidCourse.title || 'your course'),
+              contactId,
+            }, { send: sendEmailByPurpose }).catch((err: unknown) => ({ sent: false as const, reason: 'send_failed' as const, error: err instanceof Error ? err.message : String(err) }))
+            if (!emailResult.sent && emailResult.reason !== 'already_sent') {
+              console.warn('[stripe.webhook] course enrollment email not sent:', emailResult.reason, emailResult.error || '')
             }
 
             console.log(`[stripe.webhook] Course enrollment: ${studentName} enrolled in course ${courseId} via payment`)
@@ -705,21 +732,38 @@ export async function POST(req: Request) {
           if (product?.course_ids) {
             const courseIds = typeof product.course_ids === 'string' ? JSON.parse(product.course_ids) : (product.course_ids || [])
             for (const cid of courseIds) {
-              const course = await knex('courses').where('id', cid).where('is_published', true).whereNull('deleted_at').first()
+              const course = await knex('courses').where('id', cid).where('organization_id', orgId).where('is_published', true).whereNull('deleted_at').first()
               if (!course) continue
-              const existingEnroll = await knex('course_enrollments').where('course_id', cid).where('student_email', customerEmail.toLowerCase()).where('status', 'active').first()
+              const bundleTenantId = String(tenantId || course.tenant_id)
+              const existingEnroll = await knex('course_enrollments')
+                .where('tenant_id', bundleTenantId).where('organization_id', orgId)
+                .where('course_id', cid).where('student_email', customerEmail.trim().toLowerCase()).where('status', 'active').first()
               if (existingEnroll) continue
-              await knex('course_enrollments').insert({
-                id: require('crypto').randomUUID(),
-                tenant_id: tenantId || course.tenant_id,
-                organization_id: orgId,
-                course_id: cid,
-                student_name: session.customer_details?.name || customerEmail,
-                student_email: customerEmail.toLowerCase(),
-                payment_id: session.payment_intent || null,
-                status: 'active',
-                enrolled_at: new Date(),
-              }).catch(e => console.error('[stripe.webhook] product course enrollment failed:', e))
+              const bundleEnrollmentId = require('crypto').randomUUID()
+              const enrolled = await knex('course_enrollments').insert(paidEnrollmentRow({
+                enrollmentId: bundleEnrollmentId,
+                tenantId: bundleTenantId,
+                organizationId: orgId,
+                courseId: cid,
+                studentName: session.customer_details?.name || customerEmail,
+                studentEmail: customerEmail,
+                paymentRecordId,
+              })).then(() => true).catch(e => { console.error('[stripe.webhook] product course enrollment failed:', e); return false })
+              if (!enrolled) continue
+              if (resolvedContactId) {
+                await knex('course_enrollments').where('id', bundleEnrollmentId).where('organization_id', orgId).update({ contact_id: resolvedContactId }).catch(() => {})
+              }
+              const bundleEmail = await sendEnrollmentEmailOnce(knex, {
+                enrollmentId: bundleEnrollmentId,
+                tenantId: bundleTenantId,
+                organizationId: orgId,
+                studentEmail: customerEmail,
+                courseTitle: String(course.title || 'your course'),
+                contactId: resolvedContactId,
+              }, { send: sendEmailByPurpose }).catch((err: unknown) => ({ sent: false as const, reason: 'send_failed' as const, error: err instanceof Error ? err.message : String(err) }))
+              if (!bundleEmail.sent && bundleEmail.reason !== 'already_sent') {
+                console.warn('[stripe.webhook] product course enrollment email not sent:', bundleEmail.reason, bundleEmail.error || '')
+              }
               console.log(`[stripe.webhook] Auto-enrolled ${customerEmail} in course ${course.title} via product purchase`)
             }
           }

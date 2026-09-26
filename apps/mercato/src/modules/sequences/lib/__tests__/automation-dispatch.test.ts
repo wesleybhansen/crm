@@ -117,7 +117,7 @@ describe('automation triggers fire once per event', () => {
     const { knex, ctx } = world(
       [{ trigger_type: 'invoice_paid', action_type: 'create_task', action_config: { taskTitle: 'Thank them' } }],
       {
-        sequences: [{ id: 'seq-1', organization_id: ORG, trigger_type: 'invoice_paid', status: 'active', deleted_at: null, name: 'Post-Purchase Thank You', trigger_config: null }],
+        sequences: [{ id: 'seq-1', organization_id: ORG, tenant_id: TENANT, trigger_type: 'invoice_paid', status: 'active', deleted_at: null, name: 'Post-Purchase Thank You', trigger_config: null }],
         sequence_steps: [{ id: 'step-1', sequence_id: 'seq-1', step_order: 1, step_type: 'email', config: '{}' }],
       },
     )

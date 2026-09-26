@@ -14,6 +14,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { CustomerBusinessProfile } from '../../data/entities'
 import { businessProfileUpsertSchema } from '../../data/validators'
+import { applyStageRenames, planStageRenames } from '../../lib/pipelineStageRenames'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { z } from 'zod'
 
@@ -129,6 +130,18 @@ export async function PUT(req: Request) {
       organizationId: auth.orgId,
     })
     const container = await createRequestContainer()
+
+    // A saved stage list may rename stages; read the list it replaces so the
+    // renamed stages' deals and contacts can follow (lib/pipelineStageRenames).
+    let previousStages: unknown = null
+    if (input.pipelineStages !== undefined) {
+      const current = await (container.resolve('em') as EntityManager).fork().findOne(CustomerBusinessProfile, {
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+      })
+      previousStages = current?.pipelineStages ?? null
+    }
+
     const commandBus = container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<typeof input, { businessProfileId: string }>(
       'customers.business_profile.upsert',
@@ -145,6 +158,17 @@ export async function PUT(req: Request) {
       },
     )
     const em = (container.resolve('em') as EntityManager).fork()
+
+    if (input.pipelineStages !== undefined) {
+      const renames = planStageRenames(previousStages, input.pipelineStages, (body as Record<string, unknown>).stageRenames)
+      if (renames.length > 0) {
+        try {
+          await applyStageRenames(em.getKnex(), { tenantId: auth.tenantId, organizationId: auth.orgId }, renames)
+        } catch (renameErr) {
+          console.error('[business-profile] Failed to carry deals and contacts to renamed stages:', renameErr)
+        }
+      }
+    }
 
     // Reputation settings ride alongside the zod-validated upsert (which strips
     // unknown keys). The upsert command guarantees the profile row exists.
@@ -202,7 +226,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: {
         contentType: 'application/json',
         schema: businessProfileUpsertSchema.omit({ tenantId: true, organizationId: true }),
-        description: 'Fields to set on the business profile. Omitted fields are left unchanged.',
+        description: 'Fields to set on the business profile. Omitted fields are left unchanged. With `pipelineStages`, an optional `stageRenames: [{ from, to }]` moves the deals and contacts of each renamed stage to its new name (a single in-place rename is also detected without it).',
       },
       responses: [
         { status: 200, description: 'Returns the upserted business profile', schema: businessProfileResponseSchema },

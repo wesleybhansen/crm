@@ -1,11 +1,13 @@
 import type { Knex } from 'knex'
-import { geminiGenerationConfig, geminiText, geminiUsage } from '@/lib/ai/gemini'
+// Relative import: this file runs inside the Customer Service processor.
+import { geminiGenerationConfig, geminiText, geminiUsage } from '../../../lib/ai/gemini'
 
 /* Commitments: first-class "what was promised, both directions" records.
  *
  * Table `commitments` (scripts/sql/crm-batch-2026-07-10.sql). Rows come from
- * three sources: AI extraction over a contact's recent emails (lazy, at
- * meeting-prep time so cost is bounded to contacts you're about to meet),
+ * three sources: AI extraction over a contact's recent emails (run by the
+ * Customer Service processor for each new inbound customer email it drafts,
+ * and refreshed on demand when a meeting-prep brief is opened for a contact),
  * voice debriefs, and manual/Scout adds. Meeting prep surfaces open ones.
  * The extractor NEVER meters itself — callers gate + meter (house rule from
  * ai-summaries.ts). */
@@ -56,11 +58,16 @@ export async function extractCommitmentsForContact(
   orgId: string,
   tenantId: string | null,
   contactId: string,
+  opts: { sourceRef?: string | null } = {},
 ): Promise<{ created: number; tokensIn: number; tokensOut: number; model: string }> {
   const none = { created: 0, tokensIn: 0, tokensOut: 0, model: EXTRACT_MODEL }
+  // Tenant scope on top of the org scope whenever the caller knows the tenant.
+  // Commitment rows written before tenant ids were stored keep tenant_id NULL.
+  const inTenant = (q: Knex.QueryBuilder): Knex.QueryBuilder => (tenantId ? q.where('tenant_id', tenantId) : q)
+  const inTenantOrLegacy = (q: Knex.QueryBuilder): Knex.QueryBuilder =>
+    tenantId ? q.where((w: Knex.QueryBuilder) => { w.where('tenant_id', tenantId).orWhere('tenant_id', null) }) : q
   try {
-    const emails = await knex('email_messages')
-      .where('organization_id', orgId)
+    const emails = await inTenant(knex('email_messages').where('organization_id', orgId))
       .where('contact_id', contactId)
       .orderBy('created_at', 'desc')
       .limit(MAX_EMAILS)
@@ -73,15 +80,14 @@ export async function extractCommitmentsForContact(
     const newestMail = emails[0]?.created_at ? new Date(emails[0].created_at) : null
     let lastExtractedAt: Date | null = null
     try {
-      const marker = await knex('customer_entities')
-        .where('id', contactId).where('organization_id', orgId)
+      const marker = await inTenant(knex('customer_entities').where('id', contactId).where('organization_id', orgId))
         .select('commitments_extracted_at').first()
       lastExtractedAt = marker?.commitments_extracted_at ? new Date(marker.commitments_extracted_at) : null
     } catch { /* column missing (migration not applied) — fall through */ }
     if (lastExtractedAt && newestMail && lastExtractedAt >= newestMail) return none
 
-    const alreadyTracked = await knex('commitments')
-      .where('organization_id', orgId).where('contact_id', contactId).where('status', 'open')
+    const alreadyTracked = await inTenantOrLegacy(knex('commitments').where('organization_id', orgId))
+      .where('contact_id', contactId).where('status', 'open')
       .select('description').limit(20)
     const trackedBlock = alreadyTracked.length > 0
       ? `\n\nAlready tracked (do NOT repeat any of these, even reworded):\n${alreadyTracked.map((r: any) => `- ${r.description}`).join('\n')}`
@@ -131,8 +137,7 @@ ${transcript}${trackedBlock}`
       return { ...none, tokensIn, tokensOut }
     }
 
-    const existing = await knex('commitments')
-      .where('organization_id', orgId)
+    const existing = await inTenantOrLegacy(knex('commitments').where('organization_id', orgId))
       .where('contact_id', contactId)
       .select('description')
     const seen = new Set(existing.map((r: any) => normalizeDesc(r.description)))
@@ -155,12 +160,13 @@ ${transcript}${trackedBlock}`
         due_at: dueAt,
         status: 'open',
         source: 'email',
+        // The message the extraction ran for (Customer Service passes it).
+        ...(opts.sourceRef ? { source_ref: opts.sourceRef } : {}),
       })
       created++
     }
     try {
-      await knex('customer_entities')
-        .where('id', contactId).where('organization_id', orgId)
+      await inTenant(knex('customer_entities').where('id', contactId).where('organization_id', orgId))
         .update({ commitments_extracted_at: new Date() })
     } catch { /* column missing — non-fatal */ }
     return { created, tokensIn, tokensOut, model: EXTRACT_MODEL }

@@ -38,6 +38,7 @@ import { resolveNotificationService } from '../../notifications/lib/notification
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
 import { emitDealClosedIfTransitioned } from '../lib/dealClosed'
+import { DEAL_STATUS_OPEN, canonicalDealStatus, dealStatusOutcome, statusForStageMove } from '../lib/dealStatus'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -214,7 +215,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       tenantId: parsed.tenantId,
       title: parsed.title,
       description: parsed.description ?? null,
-      status: parsed.status ?? 'open',
+      status: parsed.status ? canonicalDealStatus(parsed.status) : DEAL_STATUS_OPEN,
       pipelineStage: parsed.pipelineStage ?? null,
       pipelineId: parsed.pipelineId ?? null,
       pipelineStageId: parsed.pipelineStageId ?? null,
@@ -230,6 +231,11 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     if (deal.pipelineStageId && !deal.pipelineStage) {
       const resolved = await resolvePipelineStageValue(em, deal.pipelineStageId, parsed.tenantId, parsed.organizationId)
       if (resolved) deal.pipelineStage = resolved
+    }
+    // Created straight into a Won/Lost stage with no status: it is won/lost.
+    if (!parsed.status) {
+      const implied = statusForStageMove(deal.status, deal.pipelineStage ?? null)
+      if (implied) deal.status = implied
     }
 
     await em.flush()
@@ -321,7 +327,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
 
     if (parsed.title !== undefined) record.title = parsed.title
     if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.status !== undefined) record.status = parsed.status ?? record.status
+    if (parsed.status !== undefined) record.status = parsed.status ? canonicalDealStatus(parsed.status) : record.status
     if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
     if (parsed.pipelineId !== undefined) record.pipelineId = parsed.pipelineId ?? null
     if (parsed.pipelineStageId !== undefined) record.pipelineStageId = parsed.pipelineStageId ?? null
@@ -329,6 +335,13 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     if (record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
       const resolved = await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
       if (resolved) record.pipelineStage = resolved
+    }
+    // A stage move with no status takes the stage's meaning, as a drag on the
+    // pipeline board does: into Won/Lost marks it won/lost, out of them
+    // reopens it (lib/dealStatus).
+    if (parsed.status === undefined && (record.pipelineStage ?? null) !== previousPipelineStage) {
+      const implied = statusForStageMove(record.status, record.pipelineStage ?? null)
+      if (implied) record.status = implied
     }
     if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
     if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
@@ -402,8 +415,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
 
     // Send notifications for deal won/lost status changes
     const newStatus = record.status
-    const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
-    if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost') && record.ownerUserId) {
+    const normalizedStatus = dealStatusOutcome(newStatus)
+    if (dealStatusOutcome(previousStatus) !== normalizedStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost') && record.ownerUserId) {
       try {
         const notificationService = resolveNotificationService(ctx.container)
         const notificationType = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'

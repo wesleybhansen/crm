@@ -422,9 +422,10 @@ export default function SimpleSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          accountSid: twilioSid,
-          authToken: twilioToken,
-          phoneNumber: twilioPhone,
+          accountSid: twilioSid.trim(),
+          authToken: twilioToken.trim(),
+          // Same normalization as the setup wizard: E.164 needs the + prefix.
+          phoneNumber: twilioPhone.trim().startsWith('+') ? twilioPhone.trim() : `+${twilioPhone.trim()}`,
         }),
       })
       const data = await res.json()
@@ -446,6 +447,8 @@ export default function SimpleSettingsPage() {
     }
     setSavingTwilio(false)
   }
+
+  const smsWebhookUrl = `${typeof window !== 'undefined' ? window.location.origin : 'https://crm.noliai.com'}/api/sms/webhook`
 
   async function disconnectTwilio() {
     if (!confirm('Disconnect Twilio? SMS sending will stop working.')) return
@@ -477,7 +480,7 @@ export default function SimpleSettingsPage() {
     setSavingPersona(false)
   }
 
-  async function savePipelineStages(stages: Array<{ name: string }>) {
+  async function savePipelineStages(stages: Array<{ name: string }>, stageRenames?: Array<{ from: string; to: string }>) {
     setSavingStages(true)
     setStagesSaved(false)
     try {
@@ -485,7 +488,8 @@ export default function SimpleSettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ pipelineStages: stages }),
+        // stageRenames moves the renamed stage's deals and contacts with it.
+        body: JSON.stringify(stageRenames ? { pipelineStages: stages, stageRenames } : { pipelineStages: stages }),
       })
       setPipelineStages(stages)
       setStagesSaved(true)
@@ -526,11 +530,12 @@ export default function SimpleSettingsPage() {
     if (editingStageIndex === null) return
     const name = editingStageName.trim()
     if (!name) return
+    const previousName = pipelineStages[editingStageIndex]?.name
     const updated = [...pipelineStages]
     updated[editingStageIndex] = { name }
     setEditingStageIndex(null)
     setEditingStageName('')
-    savePipelineStages(updated)
+    savePipelineStages(updated, previousName && previousName !== name ? [{ from: previousName, to: name }] : [])
   }
 
   function cancelEditStage() {
@@ -1340,7 +1345,73 @@ export default function SimpleSettingsPage() {
         </div>
       </section>
 
-      {/* SMS (Twilio) moved to the Inbox Settings tab. */}
+      {/* SMS (Twilio): connect, check and disconnect the org's own Twilio
+          number. Save & Test checks the credentials with Twilio before saving;
+          the auth token is sealed with the tenant key server side
+          (api/twilio/connections). */}
+      <section className="mb-8" id="sms-twilio">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <Phone className="size-4 text-muted-foreground" /> SMS (Twilio)
+        </h2>
+        <div className="rounded-lg border divide-y">
+          {twilioConnection ? (
+            <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium flex flex-wrap items-center gap-2">
+                  {twilioConnection.phoneNumber}
+                  <Badge variant="green">Connected</Badge>
+                </p>
+                <p className="text-xs text-muted-foreground break-all">
+                  Account: {twilioConnection.accountSid}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  To receive replies, set this number&apos;s Messaging webhook in Twilio (&quot;A message comes in&quot;, method POST) to{' '}
+                  <span className="font-mono bg-muted px-1 rounded break-all">{smsWebhookUrl}</span>
+                </p>
+              </div>
+              <Button type="button" variant="outline" size="sm" className="self-start sm:self-center shrink-0" onClick={disconnectTwilio}
+                disabled={disconnectingTwilio}>
+                {disconnectingTwilio ? 'Disconnecting...' : <><XIcon className="size-3 mr-1" /> Disconnect</>}
+              </Button>
+            </div>
+          ) : (
+            <div className="px-4 py-3">
+              <p className="text-sm font-medium mb-1">Connect your Twilio number</p>
+              <p className="text-xs text-muted-foreground mb-3">Send and receive text messages from your own Twilio account. Find the Account SID and Auth Token on your Twilio Console dashboard.</p>
+
+              {twilioError && (
+                <p className="text-xs text-[#b91c1c] dark:text-[#f87171] mb-2">{twilioError}</p>
+              )}
+              {twilioSuccess && (
+                <p className="text-xs text-[#047857] dark:text-[#34d399] mb-2 flex items-center gap-1"><Check className="size-3" /> Twilio connected!</p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label htmlFor="twilio-sid" className="text-[12.5px] font-medium text-foreground/80 block mb-1">Account SID</label>
+                  <Input id="twilio-sid" value={twilioSid} onChange={e => setTwilioSid(e.target.value)}
+                    placeholder="AC..." autoComplete="off" className="h-9 text-sm" />
+                </div>
+                <div>
+                  <label htmlFor="twilio-token" className="text-[12.5px] font-medium text-foreground/80 block mb-1">Auth Token</label>
+                  <Input id="twilio-token" value={twilioToken} onChange={e => setTwilioToken(e.target.value)}
+                    type="password" placeholder="Auth token" autoComplete="new-password" className="h-9 text-sm" />
+                </div>
+              </div>
+              <label htmlFor="twilio-phone" className="text-[12.5px] font-medium text-foreground/80 block mb-1">Twilio phone number</label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input id="twilio-phone" value={twilioPhone} onChange={e => setTwilioPhone(e.target.value)}
+                  placeholder="+18335550100" inputMode="tel" className="h-9 text-sm flex-1" />
+                <Button type="button" variant="outline" size="sm" className="h-9" onClick={saveTwilio}
+                  disabled={savingTwilio || !twilioSid.trim() || !twilioToken.trim() || !twilioPhone.trim()}>
+                  {savingTwilio ? 'Testing...' : 'Save & Test'}
+                </Button>
+              </div>
+              <p className="text-[12px] text-muted-foreground mt-1.5">Save &amp; Test checks the credentials with Twilio before saving. Include the country code; a missing + is added for you.</p>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Old Calendar section removed — consolidated into Calendar section above */}
 

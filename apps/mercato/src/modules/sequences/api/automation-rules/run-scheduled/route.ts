@@ -452,6 +452,17 @@ export async function POST(req: Request) {
       // on load, and Run Now for one rule).
       const forceRuleId = typeof body.ruleId === 'string' ? body.ruleId : null
       const data = await runScheduledRulesForOrg(knex, { organizationId: auth!.orgId!, tenantId: auth!.tenantId! }, { forceRuleId })
+      // The page load also resumes this organization's due Wait steps, a
+      // fallback for when the box cron is late or missing (the claim on each
+      // parked row keeps the two from running a step twice).
+      if (!forceRuleId) {
+        try {
+          const delayedSteps = await processScheduledSteps(knex, { organizationId: auth!.orgId!, tenantId: auth!.tenantId! })
+          return NextResponse.json({ ok: true, data: { ...data, delayedSteps } })
+        } catch (err) {
+          console.error('[run-scheduled] delayed steps failed', err)
+        }
+      }
       return NextResponse.json({ ok: true, data })
     }
 
@@ -477,14 +488,18 @@ export async function POST(req: Request) {
       }
     }
 
-    // The delayed-step pass never fails the scheduled run it follows.
-    let delayedSteps: Record<string, unknown> = { processed: 0, total: 0, dryRun: true }
-    if (!dryRun) {
+    // Delayed steps of multi-step automations (a Wait step parks the rest in
+    // automation_scheduled_steps). A failure here is reported, not a 500 that
+    // hides the scheduled rules that did run.
+    let delayedSteps: { processed: number; total: number; dryRun?: boolean; error?: string }
+    if (dryRun) {
+      delayedSteps = { processed: 0, total: 0, dryRun: true }
+    } else {
       try {
         delayedSteps = await processScheduledSteps(knex, onlyOrg ? { organizationId: onlyOrg } : {})
       } catch (err) {
         console.error('[run-scheduled] delayed steps failed', err)
-        delayedSteps = { processed: 0, total: 0, error: err instanceof Error ? err.message : 'failed' }
+        delayedSteps = { processed: 0, total: 0, error: err instanceof Error ? err.message : 'Failed' }
       }
     }
 

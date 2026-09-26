@@ -1,9 +1,15 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Loader2, Users, DollarSign, Flame, Plus, ExternalLink, X, Mail, Phone, Briefcase, Calendar, FileText, ArrowRight, GripVertical, Info } from 'lucide-react'
 import { CreateDealModal } from '@/components/CreateDealModal'
+import { buildDealBoard, dealStageNames, type DealColumn } from '@/modules/customers/lib/deal-board'
+import {
+  LOST_STATUS_VALUES,
+  WON_STATUS_VALUES,
+  statusForStageMove,
+} from '@open-mercato/core/modules/customers/lib/dealStatus'
 
 type PipelineMode = 'deals' | 'journey'
 
@@ -11,8 +17,8 @@ type DealCard = {
   id: string
   title: string
   value_amount: number | null
-  pipeline_stage: string
-  status: string
+  pipeline_stage: string | null
+  status: string | null
   contact_name: string | null
   updated_at: string
 }
@@ -31,12 +37,11 @@ type JourneyStage = {
   contacts: JourneyContact[]
 }
 
-type DealStage = {
-  name: string
-  count: number
-  totalValue: number
-  deals: DealCard[]
-}
+type DealStage = DealColumn<DealCard>
+
+// Won and lost deals fill the board's Won/Lost columns; legacy spellings
+// ('won', 'loose', 'lose') are read too.
+const CLOSED_STATUS_QUERY = [...WON_STATUS_VALUES, ...LOST_STATUS_VALUES].join(',')
 
 type ContactDetail = {
   id: string
@@ -67,7 +72,9 @@ export default function PipelinePage() {
   const [mode, setMode] = useState<PipelineMode | null>(null)
   const [loading, setLoading] = useState(true)
   const [journeyStages, setJourneyStages] = useState<JourneyStage[]>([])
-  const [dealStages, setDealStages] = useState<DealStage[]>([])
+  const [stageNames, setStageNames] = useState<string[]>([])
+  const [deals, setDeals] = useState<DealCard[]>([])
+  const dealStages: DealStage[] = useMemo(() => buildDealBoard(stageNames, deals), [stageNames, deals])
   const [dragging, setDragging] = useState<{ id: string; stage: string } | null>(null)
   const [dragOverStage, setDragOverStage] = useState<string | null>(null)
   const [movingId, setMovingId] = useState<string | null>(null)
@@ -113,34 +120,15 @@ export default function PipelinePage() {
   }
 
   async function loadDealsPipeline(profile: any) {
+    setStageNames(dealStageNames(profile))
     try {
-      let stageNames: string[] = ['New Lead', 'Contacted', 'Qualified', 'Proposal', 'Negotiation', 'Won', 'Lost']
-      if (profile?.pipeline_stages) {
-        const parsed = typeof profile.pipeline_stages === 'string'
-          ? JSON.parse(profile.pipeline_stages)
-          : profile.pipeline_stages
-        if (Array.isArray(parsed) && parsed.length >= 2) {
-          stageNames = parsed.map((s: any) => typeof s === 'string' ? s : s.name).filter(Boolean)
-        }
+      const fetchDeals = async (status: string): Promise<DealCard[]> => {
+        const res = await fetch(`/api/ext/deals?status=${encodeURIComponent(status)}&pageSize=100`, { credentials: 'include' })
+        const data = await res.json()
+        return data.ok ? (data.data || []) : []
       }
-
-      const res = await fetch('/api/ext/deals?status=open&pageSize=100', { credentials: 'include' })
-      const data = await res.json()
-      const deals: DealCard[] = data.ok ? (data.data || []) : []
-
-      const stages = stageNames.map(name => {
-        const stageDeals = deals.filter((d: DealCard) =>
-          (d.pipeline_stage || '').toLowerCase() === name.toLowerCase()
-        )
-        return {
-          name,
-          count: stageDeals.length,
-          totalValue: stageDeals.reduce((sum: number, d: DealCard) => sum + (Number(d.value_amount) || 0), 0),
-          deals: stageDeals,
-        }
-      })
-
-      setDealStages(stages)
+      const [open, closed] = await Promise.all([fetchDeals('open'), fetchDeals(CLOSED_STATUS_QUERY)])
+      setDeals([...open, ...closed])
     } catch {}
   }
 
@@ -223,23 +211,24 @@ export default function PipelinePage() {
   async function moveDeal(dealId: string, newStage: string) {
     setMovingId(dealId)
     try {
-      await fetch('/api/ext/deals', {
+      const res = await fetch('/api/ext/deals', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ id: dealId, pipeline_stage: newStage }),
       })
-      // Optimistic update
-      setDealStages(prev => prev.map(stage => ({
-        ...stage,
-        deals: stage.name === newStage
-          ? [...stage.deals, ...prev.flatMap(s => s.deals.filter(d => d.id === dealId)).map(d => ({ ...d, pipeline_stage: newStage }))]
-          : stage.deals.filter(d => d.id !== dealId),
-        count: stage.name === newStage ? stage.count + 1 : stage.deals.filter(d => d.id !== dealId).length,
-        totalValue: stage.name === newStage
-          ? stage.totalValue + (prev.flatMap(s => s.deals).find(d => d.id === dealId)?.value_amount || 0)
-          : stage.deals.filter(d => d.id !== dealId).reduce((sum, d) => sum + (Number(d.value_amount) || 0), 0),
-      })))
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.ok) {
+        // Moving into Won/Lost marks the deal won/lost (and back out reopens
+        // it); the server says which status it stored.
+        setDeals(prev => prev.map(d => {
+          if (d.id !== dealId) return d
+          const status = typeof data.data?.status === 'string'
+            ? data.data.status
+            : (statusForStageMove(d.status, newStage) ?? d.status)
+          return { ...d, pipeline_stage: newStage, status }
+        }))
+      }
     } catch {}
     setMovingId(null)
   }
@@ -268,7 +257,9 @@ export default function PipelinePage() {
     if (mode === 'journey') {
       await moveJourneyContact(dragging.id, targetStage)
     } else {
-      await moveDeal(dragging.id, targetStage)
+      // Columns are keyed by stage name; "Other stages" is not a stage.
+      const target = dealStages.find(s => s.key === targetStage)
+      if (target && target.kind !== 'other') await moveDeal(dragging.id, target.name)
     }
     setDragging(null)
   }
@@ -325,11 +316,11 @@ export default function PipelinePage() {
         </div>
       </div>
 
-      {/* Pipeline value summary (deals mode) — per-stage value bars from existing stage.totalValue */}
+      {/* Pipeline value summary (deals mode): per-stage value bars over OPEN deals only (won/lost deals are not pipeline) */}
       {mode === 'deals' && (() => {
-        const totalValue = dealStages.reduce((s, st) => s + st.totalValue, 0)
-        const totalDeals = dealStages.reduce((s, st) => s + st.count, 0)
-        const activeStages = dealStages.filter(st => st.totalValue > 0 || st.count > 0)
+        const totalValue = dealStages.reduce((s, st) => s + st.openValue, 0)
+        const totalDeals = dealStages.reduce((s, st) => s + st.openCount, 0)
+        const activeStages = dealStages.filter(st => st.openCount > 0)
         if (totalDeals === 0) return null
         return (
           <div className="shrink-0 border-b bg-card/40 px-6 py-3">
@@ -356,10 +347,10 @@ export default function PipelinePage() {
             <div className="space-y-1.5">
               {dealStages.map((stage, i) => {
                 const hue = hueFor(i)
-                const share = totalValue > 0 ? (stage.totalValue / totalValue) * 100 : 0
-                if (stage.count === 0 && stage.totalValue === 0) return null
+                const share = totalValue > 0 ? (stage.openValue / totalValue) * 100 : 0
+                if (stage.openCount === 0) return null
                 return (
-                  <div key={stage.name} className="flex items-center gap-2.5">
+                  <div key={stage.key} className="flex items-center gap-2.5">
                     <div className="flex items-center gap-1.5 w-32 shrink-0 min-w-0">
                       <span className={`size-2 rounded-full shrink-0 ${hue.dot}`} />
                       <span className="text-[11px] font-medium truncate">{stage.name}</span>
@@ -371,10 +362,10 @@ export default function PipelinePage() {
                       />
                     </div>
                     <span className={`text-[11px] font-semibold tabular-nums shrink-0 w-20 text-right ${hue.text}`}>
-                      ${stage.totalValue.toLocaleString()}
+                      ${stage.openValue.toLocaleString()}
                     </span>
                     <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 w-14 text-right">
-                      {stage.count} {stage.count === 1 ? 'deal' : 'deals'}
+                      {stage.openCount} {stage.openCount === 1 ? 'deal' : 'deals'}
                     </span>
                   </div>
                 )
@@ -497,16 +488,17 @@ export default function PipelinePage() {
             ) : (
               dealStages.map((stage, stageIndex) => {
                 const hue = hueFor(stageIndex)
+                const isOther = stage.kind === 'other'
                 return (
-                <div key={stage.name} className={`flex flex-col w-72 shrink-0 rounded-lg border bg-card transition ${dragOverStage === stage.name ? 'ring-2 ring-accent border-accent' : ''}`}
-                  onDragOver={(e) => handleDragOver(e, stage.name)}
+                <div key={stage.key} className={`flex flex-col w-72 shrink-0 rounded-lg border bg-card transition ${dragOverStage === stage.key ? 'ring-2 ring-accent border-accent' : ''}`}
+                  onDragOver={isOther ? undefined : (e) => handleDragOver(e, stage.key)}
                   onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, stage.name)}
+                  onDrop={isOther ? undefined : (e) => handleDrop(e, stage.key)}
                 >
                   <div className={`flex items-center justify-between px-3 py-2.5 border-b ${hue.tile}`}>
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`size-2 rounded-full shrink-0 ${hue.dot}`} />
-                      <h3 className="text-sm font-semibold truncate">{stage.name}</h3>
+                      <h3 className="text-sm font-semibold truncate" title={isOther ? 'Open deals whose stage is not in your stage list. Move them to one of your stages.' : undefined}>{stage.name}</h3>
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full tabular-nums shrink-0 ${hue.tile} ${hue.text}`}>
                         {stage.count}
                       </span>
@@ -523,12 +515,15 @@ export default function PipelinePage() {
                       <div key={deal.id}
                         className={`rounded-lg border bg-background p-3 hover:border-accent/40 transition cursor-grab active:cursor-grabbing ${movingId === deal.id ? 'opacity-50' : ''} ${dragging?.id === deal.id ? 'opacity-30' : ''}`}
                         draggable
-                        onDragStart={() => handleDragStart(deal.id, stage.name)}
+                        onDragStart={() => handleDragStart(deal.id, stage.key)}
                         onClick={() => window.location.href = `/backend/customers/deals/${deal.id}`}
                       >
                         <p className="text-sm font-medium truncate">{deal.title}</p>
                         {deal.contact_name && (
                           <p className="text-[11px] text-muted-foreground truncate mt-0.5">{deal.contact_name}</p>
+                        )}
+                        {isOther && (
+                          <p className="text-[11px] text-muted-foreground truncate mt-0.5">Stage: {deal.pipeline_stage || 'none'}</p>
                         )}
                         <div className="flex items-center justify-between mt-2 pt-2 border-t">
                           {deal.value_amount ? (
@@ -540,14 +535,15 @@ export default function PipelinePage() {
                             <span />
                           )}
                           <select
-                            value={stage.name}
+                            value={isOther ? '' : stage.name}
                             aria-label={`Move ${deal.title} to stage`}
                             disabled={movingId === deal.id}
                             onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => { e.stopPropagation(); if (e.target.value !== stage.name) moveDeal(deal.id, e.target.value) }}
+                            onChange={(e) => { e.stopPropagation(); if (e.target.value && e.target.value !== stage.name) moveDeal(deal.id, e.target.value) }}
                             className="h-7 max-w-[7.5rem] rounded border bg-background px-1 text-[10px] text-muted-foreground"
                           >
-                            {dealStages.map(s => <option key={s.name} value={s.name}>{s.name === stage.name ? `Move to...` : s.name}</option>)}
+                            {isOther && <option value="">Move to...</option>}
+                            {dealStages.filter(s => s.kind !== 'other').map(s => <option key={s.key} value={s.name}>{s.name === stage.name ? `Move to...` : s.name}</option>)}
                           </select>
                           <span className="text-[10px] text-muted-foreground">
                             {new Date(deal.updated_at).toLocaleDateString()}

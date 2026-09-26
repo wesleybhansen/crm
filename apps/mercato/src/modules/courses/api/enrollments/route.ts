@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOrMergeContact } from '@/modules/customers/lib/dedup'
-import { magicLinkExpiresAt, magicLinkTtlLabel } from '@/modules/courses/lib/magic-tokens'
+import { sendEnrollmentEmailOnce } from '../../lib/enrollment-email'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['courses.view'] },
@@ -33,7 +33,11 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
     const body = await req.json()
-    const { courseId, studentName, studentEmail, acceptedTerms } = body
+    const { courseId, studentName, acceptedTerms } = body
+    // Stored lowercase, like the paid path and the magic-link tokens: the
+    // student's course access matches enrollments on the token's (lowercase)
+    // email, so a capitalised address here locked the student out.
+    const studentEmail = typeof body.studentEmail === 'string' ? body.studentEmail.trim().toLowerCase() : ''
 
     if (!courseId || !studentName || !studentEmail) {
       return NextResponse.json({ ok: false, error: 'courseId, studentName, studentEmail required' }, { status: 400 })
@@ -49,7 +53,9 @@ export async function POST(req: Request) {
 
     // Check if already enrolled
     const existing = await knex('course_enrollments')
-      .where('course_id', courseId).where('student_email', studentEmail).first()
+      .where('tenant_id', course.tenant_id).where('organization_id', course.organization_id)
+      // lower(): older free enrollments were stored as typed.
+      .where('course_id', courseId).whereRaw('lower(student_email) = ?', [studentEmail]).first()
     if (existing) return NextResponse.json({ ok: true, data: existing, message: 'Already enrolled' })
 
     // If course is paid and no payment, return checkout info
@@ -161,33 +167,18 @@ export async function POST(req: Request) {
       } catch {}
     }
 
-    // Send magic link for instant access
+    // "You're enrolled!" email with a magic link for instant access. Same
+    // email and once-per-enrollment guard as the paid path (Stripe webhook).
     try {
-      const origin = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const token = require('crypto').randomBytes(32).toString('hex')
-      await knex('course_magic_tokens').insert({
-        id: require('crypto').randomUUID(),
-        organization_id: course.organization_id,
-        email: studentEmail.toLowerCase(),
-        token,
-        expires_at: magicLinkExpiresAt(),
-        created_at: new Date(),
-      })
-      const magicLink = `${origin}/api/courses/student/verify?token=${token}`
-
-      const emailHtml = `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px">
-        <h2 style="margin:0 0 8px;font-size:20px">You're enrolled!</h2>
-        <p style="color:#64748b;font-size:14px;line-height:1.6;margin-bottom:20px">Welcome to <strong>${course.title}</strong>. Click below to start learning.</p>
-        <a href="${magicLink}" style="display:inline-block;background:#6366f1;color:white;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Start Course</a>
-        <p style="color:#94a3b8;font-size:12px;margin-top:24px">This link is valid for ${magicLinkTtlLabel()}. You can request a new one anytime.</p>
-      </div>`
-
       const { sendEmailByPurpose } = await import('@/modules/email/lib/email-router')
-      await sendEmailByPurpose(knex, course.organization_id, course.tenant_id, 'transactional', {
-        to: studentEmail,
-        subject: `Welcome to ${course.title}! Access your course`,
-        htmlBody: emailHtml,
-      })
+      await sendEnrollmentEmailOnce(knex, {
+        enrollmentId: id,
+        tenantId: course.tenant_id,
+        organizationId: course.organization_id,
+        studentEmail,
+        courseTitle: course.title,
+        contactId,
+      }, { send: sendEmailByPurpose })
     } catch { /* non-blocking */ }
 
     return NextResponse.json({ ok: true, data: { id, enrolledAt: new Date() } }, { status: 201 })

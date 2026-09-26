@@ -37,10 +37,20 @@ import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/
  * all retry with the same eventId: nothing is dropped for a condition that
  * can clear on its own.
  *
+ * Journey case: realtors default to the Customer Journey board, where a closing
+ * is a CONTACT moving into a closed/won stage, with no deal row. That move
+ * (customers.person.stage_changed -> subscribers/journey-closed-ams.ts) sends
+ * the same AMS event with eventId = dealId = journey-closed:<contactId>:<stage
+ * key> (journeyClosedEventId), title = the contact's name, and side / address /
+ * city from the contact's custom fields. `client` is that contact, under the
+ * same opt-out rules. Outbox row: event_type 'journey.closed', subject_id =
+ * the contact id, so one journey closing per contact is recorded.
+ *
  * Relative imports only: subscribers can be bundled into workers.
  */
 
 export const DEAL_CLOSED_EVENT_TYPE = 'deal.closed'
+export const JOURNEY_CLOSED_EVENT_TYPE = 'journey.closed'
 export const DEAL_CLOSED_TARGET = 'ams'
 export const DEAL_CLOSED_PATH = '/api/internal/events/deal-closed'
 export const DEFAULT_AMS_BASE_URL = 'https://ams.noliai.com'
@@ -109,6 +119,7 @@ export type OutboundDeps = {
   resolveOwner?: (knex: Knex, organizationId: string, tenantId: string) => Promise<OwnerResolution>
   hasAmsEntitlement?: (noliUserId: string) => Promise<boolean>
   loadDeal?: (knex: Knex, row: OutboundRow, em: unknown) => Promise<LoadedDeal | null>
+  loadJourneyContact?: (knex: Knex, row: OutboundRow, em: unknown) => Promise<LoadedDeal | null>
 }
 
 export type DrainResult = { claimed: number; delivered: number; retried: number; skipped: number; failed: number }
@@ -118,6 +129,20 @@ type Outcome = 'delivered' | 'retried' | 'skipped' | 'failed'
 /** One closing per deal, so one id per deal: the same on every retry. */
 export function dealClosedEventId(dealId: string): string {
   return `deal-closed:${dealId}`
+}
+
+/** A journey stage name as a stable id segment: "Closed Won" -> "closed-won". */
+export function journeyStageKey(stage: string | null | undefined): string {
+  const key = String(stage ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80)
+  return key || 'closed'
+}
+
+/**
+ * The stable id of a journey-board closing (a contact moved into a closed/won
+ * stage): the AMS eventId AND its dealId, the same on every retry.
+ */
+export function journeyClosedEventId(contactId: string, stage: string | null | undefined): string {
+  return `journey-closed:${contactId}:${journeyStageKey(stage)}`
 }
 
 /** Delay before the next try after `attempts` tries: 1 min, doubling, capped at 6 h. */
@@ -152,6 +177,58 @@ export async function enqueueDealClosed(
       event_type: DEAL_CLOSED_EVENT_TYPE,
       subject_id: input.dealId,
       event_id: dealClosedEventId(input.dealId),
+      target: DEAL_CLOSED_TARGET,
+      occurred_at: input.closedAt,
+      status: 'pending',
+      attempts: 0,
+      next_attempt_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflict(['organization_id', 'event_type', 'subject_id'])
+    .ignore()
+    .returning('id')
+  return { inserted: Array.isArray(rows) && rows.length > 0 }
+}
+
+export type PersonStageChangedPayload = {
+  id?: string
+  organizationId?: string | null
+  tenantId?: string | null
+  stage?: string | null
+  previousStage?: string | null
+  changedAt?: string
+}
+
+/**
+ * True when a customers.person.stage_changed is a journey closing worth one
+ * AMS event: into a closed/won stage from a stage that was not one. Lost
+ * stages, moves out of a closed stage and moves between two closed stages
+ * are not.
+ */
+export function isJourneyClosing(payload: PersonStageChangedPayload): boolean {
+  const stage = typeof payload?.stage === 'string' ? payload.stage.trim() : ''
+  if (!stage) return false
+  if (!isDealClosedWon({ status: null, pipelineStage: stage })) return false
+  return !isDealClosedWon({ status: null, pipelineStage: payload.previousStage ?? null })
+}
+
+/**
+ * Record a journey-board closing for delivery. Idempotent per contact: moving
+ * the same contact back out and into a closed stage records nothing new.
+ */
+export async function enqueueJourneyClosed(
+  knex: Knex,
+  input: { organizationId: string; tenantId: string; contactId: string; stage: string; closedAt: Date },
+  now: Date = new Date(),
+): Promise<{ inserted: boolean }> {
+  const rows = await knex(OUTBOX_TABLE)
+    .insert({
+      organization_id: input.organizationId,
+      tenant_id: input.tenantId,
+      event_type: JOURNEY_CLOSED_EVENT_TYPE,
+      subject_id: input.contactId,
+      event_id: journeyClosedEventId(input.contactId, input.stage),
       target: DEAL_CLOSED_TARGET,
       occurred_at: input.closedAt,
       status: 'pending',
@@ -220,7 +297,8 @@ export function buildDealClosedPayload(row: OutboundRow, deal: LoadedDeal, noliU
     eventId: row.event_id,
     noliUserId,
     crmOrganizationId: row.organization_id,
-    dealId: row.subject_id,
+    // A journey closing has no deal row: its stable event id is its deal id.
+    dealId: row.event_type === JOURNEY_CLOSED_EVENT_TYPE ? row.event_id : row.subject_id,
     title: cleanText(deal.title) ?? 'Closed deal',
     closedAt: new Date(row.occurred_at).toISOString(),
     ...extractDealLocation(deal.custom),
@@ -237,22 +315,21 @@ export function buildDealClosedPayload(row: OutboundRow, deal: LoadedDeal, noliU
 }
 
 /**
- * The deal's first linked contact as the buyer, unless they opted out of
- * email here. Any doubt (no readable address, an unreadable opt-out list)
- * returns null: AMS would mail them a yearly home value update.
+ * A contact as the `client`, unless they opted out of email here. Any doubt
+ * (no readable address, an unreadable opt-out list) returns null: AMS would
+ * mail them a yearly home value update. `contact` holds the stored (possibly
+ * encrypted) primary_email and display_name; they are decrypted here.
  */
-async function loadDealClient(knex: Knex, row: OutboundRow, em: unknown): Promise<DealClient | null> {
-  const contact = await knex('customer_deal_people as cdp')
-    .join('customer_entities as ce', 'ce.id', 'cdp.person_entity_id')
-    .where('cdp.deal_id', row.subject_id)
-    .where('ce.organization_id', row.organization_id)
-    .whereNull('ce.deleted_at')
-    .orderBy('cdp.created_at', 'asc')
-    .first('ce.id as id', 'ce.primary_email as primary_email', 'ce.display_name as display_name')
-  if (!contact) return null
+async function contactAsClient(
+  knex: Knex,
+  row: OutboundRow,
+  em: unknown,
+  contact: { id: string; primary_email?: unknown; display_name?: unknown },
+): Promise<DealClient | null> {
   const storedEmail = typeof contact.primary_email === 'string' ? contact.primary_email : ''
-  await decryptRowFields(em ?? null, CONTACT_ENTITY_KEY, [contact], ['primary_email', 'display_name'], row.tenant_id, row.organization_id)
-  const email = cleanText(contact.primary_email, 320)?.toLowerCase()
+  const readable = { primary_email: contact.primary_email, display_name: contact.display_name }
+  await decryptRowFields(em ?? null, CONTACT_ENTITY_KEY, [readable], ['primary_email', 'display_name'], row.tenant_id, row.organization_id)
+  const email = cleanText(readable.primary_email, 320)?.toLowerCase()
   if (!email || !email.includes('@')) return null
   const optOut = await knex('email_unsubscribes')
     .where('organization_id', row.organization_id)
@@ -268,8 +345,97 @@ async function loadDealClient(knex: Knex, row: OutboundRow, em: unknown): Promis
     .whereNull('deleted_at')
     .first('id')
   if (categoryOptOut) return null
-  const name = cleanText(contact.display_name, 200)
+  const name = cleanText(readable.display_name, 200)
   return name ? { name, email } : { email }
+}
+
+/** The deal's first linked contact as the buyer, unless they opted out of email here. */
+async function loadDealClient(knex: Knex, row: OutboundRow, em: unknown): Promise<DealClient | null> {
+  const contact = await knex('customer_deal_people as cdp')
+    .join('customer_entities as ce', 'ce.id', 'cdp.person_entity_id')
+    .where('cdp.deal_id', row.subject_id)
+    .where('ce.organization_id', row.organization_id)
+    .whereNull('ce.deleted_at')
+    .orderBy('cdp.created_at', 'asc')
+    .first('ce.id as id', 'ce.primary_email as primary_email', 'ce.display_name as display_name')
+  if (!contact) return null
+  return contactAsClient(knex, row, em, contact)
+}
+
+async function requestEm(em: unknown): Promise<unknown> {
+  if (em) return em
+  const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+  return (await createRequestContainer()).resolve('em')
+}
+
+/**
+ * A journey-board closing: the contact (subject_id) as the deal. Title is the
+ * contact's name; side, address and city come from the contact's custom
+ * fields (entity-level and person-profile fields, profile winning); the
+ * contact is the client under the same opt-out rules. The current
+ * lifecycle_stage stands in for the deal stage, so a contact moved back out
+ * of the closed stage before delivery is skipped like a reopened deal.
+ */
+export async function defaultLoadJourneyContact(knex: Knex, row: OutboundRow, em: unknown): Promise<LoadedDeal | null> {
+  const contact = await knex('customer_entities')
+    .where('id', row.subject_id)
+    .where('organization_id', row.organization_id)
+    .where('tenant_id', row.tenant_id)
+    .whereNull('deleted_at')
+    .first('id', 'display_name', 'primary_email', 'lifecycle_stage')
+  if (!contact) return null
+  const titleRow = { display_name: contact.display_name }
+  try {
+    await decryptRowFields(em ?? null, CONTACT_ENTITY_KEY, [titleRow], ['display_name'], row.tenant_id, row.organization_id)
+  } catch {
+    titleRow.display_name = null
+  }
+  let custom: Record<string, unknown> = {}
+  try {
+    const manager = await requestEm(em)
+    const { loadCustomFieldSnapshot } = await import('@open-mercato/shared/lib/commands/customFieldSnapshots')
+    const entityCustom = await loadCustomFieldSnapshot(manager as never, {
+      entityId: 'customers:customer_entity',
+      recordId: row.subject_id,
+      tenantId: row.tenant_id,
+      organizationId: row.organization_id,
+    })
+    const profile = await knex('customer_people')
+      .where('entity_id', row.subject_id)
+      .where('organization_id', row.organization_id)
+      .where('tenant_id', row.tenant_id)
+      .first('id')
+      .catch(() => null)
+    const profileCustom = profile?.id
+      ? await loadCustomFieldSnapshot(manager as never, {
+        entityId: 'customers:customer_person_profile',
+        recordId: String(profile.id),
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+      })
+      : {}
+    custom = { ...entityCustom, ...profileCustom }
+  } catch {
+    custom = {}
+  }
+  let client: DealClient | null = null
+  const side = extractDealLocation(custom).side
+  if (side === 'buyer' || side === 'both') {
+    try {
+      client = await contactAsClient(knex, row, em, contact)
+    } catch {
+      client = null
+    }
+  }
+  return {
+    id: String(contact.id),
+    title: cleanText(titleRow.display_name),
+    status: null,
+    pipelineStage: contact.lifecycle_stage ?? null,
+    valueAmount: null,
+    custom,
+    client,
+  }
 }
 
 async function defaultResolveOwner(knex: Knex, organizationId: string, tenantId: string): Promise<OwnerResolution> {
@@ -379,18 +545,19 @@ async function deliverDealClosed(knex: Knex, row: OutboundRow, attempts: number,
   const baseUrl = deps.baseUrl()
   if (!secret || !baseUrl) return retryLater(knex, row, attempts, now, 'unconfigured: NOLI_INTERNAL_SERVICE_SECRET or AMS_INTERNAL_URL missing', null)
 
+  const journey = row.event_type === JOURNEY_CLOSED_EVENT_TYPE
   let deal: LoadedDeal | null
   try {
-    deal = await deps.loadDeal(knex, row, em)
+    deal = journey ? await deps.loadJourneyContact(knex, row, em) : await deps.loadDeal(knex, row, em)
   } catch (err) {
     return retryLater(knex, row, attempts, now, `load deal: ${err instanceof Error ? err.message : String(err)}`, null)
   }
   if (!deal) {
-    await finish(knex, row, now, { status: 'skipped', last_error: 'deal_missing' })
+    await finish(knex, row, now, { status: 'skipped', last_error: journey ? 'contact_missing' : 'deal_missing' })
     return 'skipped'
   }
   if (!isDealClosedWon({ status: deal.status, pipelineStage: deal.pipelineStage })) {
-    await finish(knex, row, now, { status: 'skipped', last_error: 'deal_not_closed' })
+    await finish(knex, row, now, { status: 'skipped', last_error: journey ? 'journey_not_closed' : 'deal_not_closed' })
     return 'skipped'
   }
 
@@ -457,6 +624,7 @@ function withDefaults(deps: OutboundDeps | undefined): Required<OutboundDeps> {
     resolveOwner: deps?.resolveOwner ?? defaultResolveOwner,
     hasAmsEntitlement: deps?.hasAmsEntitlement ?? defaultHasAmsEntitlement,
     loadDeal: deps?.loadDeal ?? defaultLoadDeal,
+    loadJourneyContact: deps?.loadJourneyContact ?? defaultLoadJourneyContact,
   }
 }
 
@@ -475,7 +643,7 @@ export async function drainOutboundEvents(
   let due: OutboundRow[] = []
   try {
     let query = knex(OUTBOX_TABLE)
-      .where('event_type', DEAL_CLOSED_EVENT_TYPE)
+      .whereIn('event_type', [DEAL_CLOSED_EVENT_TYPE, JOURNEY_CLOSED_EVENT_TYPE])
       .whereIn('status', ['pending', 'sending'])
       .where('next_attempt_at', '<=', deps.now())
       .orderBy('next_attempt_at', 'asc')

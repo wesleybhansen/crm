@@ -5,113 +5,111 @@ import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import crypto from 'crypto'
-import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { evaluateConditions, parseConditions, conditionContext } from '../../../lib/automation-conditions'
+import { loadContactFacts } from '../../../lib/automation-contact-facts'
+import { runAutomationRuleNow, summarizeAutomationRun, type AutomationStepRun } from '../../../lib/automation-execute'
+
+type StepPreview = {
+  index: number
+  type: 'action' | 'delay'
+  actionType?: string
+  description: string
+  wouldExecute: boolean
+  result?: { status: AutomationStepRun['status'] | 'waiting' | 'not_run'; detail?: string }
+}
+
+const EMAIL_ONLY_MESSAGE =
+  'Nothing was run. To run this automation for real, pick a saved contact; an email address on its own can only be used for a dry run.'
+
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (value == null || value === '') return fallback
+  if (typeof value !== 'string') return value as T
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
+  }
+}
 
 export async function POST(req: Request) {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId || !auth?.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const { ruleId, contactId, email, dryRun = true } = await req.json()
+    const body = await req.json()
+    const ruleId = typeof body?.ruleId === 'string' ? body.ruleId : null
+    const contactId = typeof body?.contactId === 'string' && body.contactId ? body.contactId : null
+    const email = typeof body?.email === 'string' && body.email ? body.email : null
+    const dryRun = body?.dryRun !== false
     if (!ruleId) return NextResponse.json({ ok: false, error: 'ruleId required' }, { status: 400 })
     if (!contactId && !email) return NextResponse.json({ ok: false, error: 'contactId or email required' }, { status: 400 })
 
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const knex = em.getKnex()
+    const scope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
     // Load the rule
     const rule = await knex('automation_rules')
       .where('id', ruleId)
       .where('organization_id', auth.orgId)
+      .where('tenant_id', auth.tenantId)
       .first()
     if (!rule) return NextResponse.json({ ok: false, error: 'Automation not found' }, { status: 404 })
 
-    // Load contact or create virtual contact from email
-    let contact: any
+    // The contact's fields exactly as the runner reads them (decrypted, with
+    // tags), or a virtual contact built from a typed email address.
+    let facts: Record<string, unknown>
     if (contactId) {
-      contact = await knex('customer_entities')
-        .where('id', contactId)
-        .where('organization_id', auth.orgId)
-        .first()
-      if (!contact) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
+      const loaded = await loadContactFacts(knex, scope, contactId)
+      if (!loaded) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
+      facts = loaded
     } else {
-      // Virtual contact from email — test without a real contact record
-      contact = {
-        id: 'test-virtual',
+      facts = {
+        contact_id: null,
         display_name: email,
         primary_email: email,
         primary_phone: null,
         source: 'test',
         lifecycle_stage: null,
+        tags: [],
+        name: email,
+        email,
+        phone: null,
       }
-    }
-
-    // Raw knex skips the decrypting subscriber — otherwise the rule preview
-    // shows ciphertext for exactly the fields the customer is testing against.
-    if (contact?.id) {
-      await decryptRowFields(em, CONTACT_ENTITY_KEY, [contact], ['display_name', 'primary_email', 'primary_phone'], auth.tenantId, auth.orgId)
     }
 
     // Build context (same as what the executor would see)
-    const context: Record<string, string | null> = {
-      contactId: contact.id,
-      contactName: contact.display_name,
-      contactEmail: contact.primary_email,
-      contactPhone: contact.primary_phone,
-      source: contact.source,
-      lifecycle_stage: contact.lifecycle_stage,
-      display_name: contact.display_name,
-      primary_email: contact.primary_email,
-    }
+    const context = conditionContext({ contactId: contactId ?? 'test-virtual', triggerType: rule.trigger_type }, facts)
 
-    // Evaluate conditions
-    const rawConditions = rule.conditions
-      ? (typeof rule.conditions === 'string' ? JSON.parse(rule.conditions) : rule.conditions)
-      : []
-    const conditionResults = rawConditions.map((c: { field: string; operator: string; value?: string }) => {
-      const fieldValue = context[c.field]
-      let passes = false
-      switch (c.operator) {
-        case 'eq': case 'equals': passes = fieldValue === c.value; break
-        case 'neq': case 'not_equals': passes = fieldValue !== c.value; break
-        case 'contains':
-          passes = String(fieldValue || '').toLowerCase().includes(String(c.value || '').toLowerCase())
-          break
-        case 'not_contains':
-          passes = !String(fieldValue || '').toLowerCase().includes(String(c.value || '').toLowerCase())
-          break
-        case 'starts_with':
-          passes = String(fieldValue || '').toLowerCase().startsWith(String(c.value || '').toLowerCase())
-          break
-        case 'exists': case 'is_set': passes = fieldValue != null && fieldValue !== ''; break
-        case 'notExists': case 'is_not_set': passes = fieldValue == null || fieldValue === ''; break
-        case 'gt': passes = Number(fieldValue) > Number(c.value); break
-        case 'lt': passes = Number(fieldValue) < Number(c.value); break
-        default: passes = true
-      }
-      return { field: c.field, operator: c.operator, value: c.value, actual: fieldValue, passes }
-    })
-
-    const allConditionsPass = conditionResults.length === 0 || conditionResults.every((r: { passes: boolean }) => r.passes)
+    // Evaluate conditions with the runner's evaluator
+    const outcome = evaluateConditions(parseConditions(rule.conditions), context)
+    const conditionResults = outcome.results.map((r) => ({
+      field: r.field,
+      operator: r.operator,
+      value: r.value,
+      actual: Array.isArray(r.actual) ? r.actual.join(', ') : r.actual,
+      passes: r.passes,
+      ...(r.error ? { error: r.error } : {}),
+      ...(r.note ? { note: r.note } : {}),
+    }))
+    const allConditionsPass = outcome.pass
 
     // Parse steps
-    let steps = rule.steps
-      ? (typeof rule.steps === 'string' ? JSON.parse(rule.steps) : rule.steps)
-      : null
-    if (!steps) {
+    let steps = parseJson<any[] | null>(rule.steps, null)
+    if (!Array.isArray(steps) || steps.length === 0) {
       steps = [{
         type: 'action',
         actionType: rule.action_type,
-        actionConfig: typeof rule.action_config === 'string'
-          ? JSON.parse(rule.action_config)
-          : rule.action_config,
+        actionConfig: parseJson<Record<string, unknown>>(rule.action_config, {}),
       }]
     }
 
+    const displayEmail = typeof facts.primary_email === 'string' ? facts.primary_email : null
+    const displayPhone = typeof facts.primary_phone === 'string' ? facts.primary_phone : null
+
     // Build step preview
-    const stepResults = steps.map((step: { type: string; delayMinutes?: number; actionType?: string; actionConfig?: Record<string, string> }, index: number) => {
+    const stepResults: StepPreview[] = steps.map((step: { type: string; delayMinutes?: number; actionType?: string; actionConfig?: Record<string, string> }, index: number) => {
       if (step.type === 'delay') {
         const mins = step.delayMinutes || 0
         let label: string
@@ -126,7 +124,7 @@ export async function POST(req: Request) {
       let description = ''
       switch (actionType) {
         case 'send_email':
-          description = `Send email: "${config.subject || 'No subject'}" to ${contact.primary_email || 'no email'}`
+          description = `Send email: "${config.subject || 'No subject'}" to ${displayEmail || 'no email'}`
           break
         case 'create_task':
           description = `Create task: "${config.title || config.taskTitle || 'Untitled'}"${config.dueDays ? ` (due in ${config.dueDays} days)` : ''}`
@@ -134,7 +132,7 @@ export async function POST(req: Request) {
         case 'add_tag': description = `Add tag: "${config.tagName || 'unknown'}"`; break
         case 'remove_tag': description = `Remove tag: "${config.tagName || 'unknown'}"`; break
         case 'move_to_stage': description = `Move to stage: "${config.stage || 'unknown'}"`; break
-        case 'send_sms': description = `Send SMS to ${contact.primary_phone || 'no phone'}`; break
+        case 'send_sms': description = `Send SMS to ${displayPhone || 'no phone'}`; break
         case 'enroll_in_sequence': description = `Enroll in sequence: "${config.sequenceName || 'unknown'}"`; break
         case 'webhook': description = `Call webhook: ${config.url || 'no URL'}`; break
         default: description = `${actionType}: ${JSON.stringify(config).substring(0, 80)}`
@@ -142,49 +140,55 @@ export async function POST(req: Request) {
       return { index, type: 'action', actionType, description, wouldExecute: allConditionsPass }
     })
 
-    // If not dry run and conditions pass, log the test execution
-    let executionResults = null
+    // Dry run off and conditions pass: run the rule for real, through the
+    // same executor a trigger uses. This used to write a log row saying
+    // "executed" and run nothing.
+    let executionResults: { executed: boolean; message: string } | null = null
     if (!dryRun && allConditionsPass) {
-      try {
-        executionResults = {
-          executed: true,
-          message: 'Automation executed successfully against the selected contact.',
-        }
-
-        // Log the test execution
-        await knex('automation_rule_logs').insert({
-          id: crypto.randomUUID(),
-          rule_id: ruleId,
-          contact_id: contactId,
-          trigger_data: JSON.stringify({ ...context, _testExecution: true }),
-          action_result: JSON.stringify({ success: true, dryRun: false, steps: stepResults.length }),
-          status: 'executed',
-          created_at: new Date(),
-        })
-      } catch (execErr) {
-        executionResults = {
-          executed: false,
-          message: execErr instanceof Error ? execErr.message : 'Execution failed',
+      if (!contactId) {
+        executionResults = { executed: false, message: EMAIL_ONLY_MESSAGE }
+      } else {
+        try {
+          const runs = await runAutomationRuleNow(knex, scope, rule, {
+            contactId,
+            triggerType: rule.trigger_type,
+            _testExecution: true,
+          })
+          const byIndex = new Map(runs.map((r) => [r.index, r]))
+          const wait = runs.find((r) => r.type === 'delay' && r.status === 'scheduled')
+          for (const step of stepResults) {
+            const run = byIndex.get(step.index)
+            if (run) step.result = { status: run.status, detail: run.detail }
+            else if (wait && step.index > wait.index) step.result = { status: 'waiting', detail: `Runs after the wait (scheduled for ${wait.executeAt})` }
+            else step.result = { status: 'not_run', detail: 'Not run: an earlier step failed' }
+          }
+          executionResults = summarizeAutomationRun(runs)
+        } catch (execErr) {
+          executionResults = {
+            executed: false,
+            message: execErr instanceof Error ? `Run failed: ${execErr.message}` : 'Run failed',
+          }
         }
       }
     }
 
+    const actionCount = stepResults.filter((s) => s.type === 'action').length
     return NextResponse.json({
       ok: true,
       data: {
         rule: { name: rule.name, trigger_type: rule.trigger_type, status: rule.status },
         contact: {
-          name: contact.display_name,
-          email: contact.primary_email,
-          source: contact.source,
-          stage: contact.lifecycle_stage,
+          name: facts.display_name ?? null,
+          email: displayEmail,
+          source: facts.source ?? null,
+          stage: facts.lifecycle_stage ?? null,
         },
         conditions: { items: conditionResults, allPass: allConditionsPass },
         steps: stepResults,
         dryRun,
         executionResults,
         summary: allConditionsPass
-          ? `All conditions pass. ${dryRun ? `${stepResults.filter((s: { type: string }) => s.type === 'action').length} action(s) would execute.` : 'Automation executed.'}`
+          ? (dryRun ? `All conditions pass. ${actionCount} action(s) would execute.` : 'All conditions pass.')
           : `Conditions not met. Automation would NOT fire. Check the condition results below.`,
       },
     })

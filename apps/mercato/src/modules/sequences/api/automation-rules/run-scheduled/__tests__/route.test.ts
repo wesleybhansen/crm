@@ -120,6 +120,32 @@ describe('run-scheduled route', () => {
     expect(knex.db.tables.tasks.map((t: Record<string, unknown>) => t.organization_id)).toEqual(['org-a'])
   })
 
+  it('resumes the steps parked by a Wait: the cron for everyone, the page load for its own organization', async () => {
+    const knex = world()
+    const parked = (id: string, org: string, tenant: string, ruleId: string, title: string) => ({
+      id, organization_id: org, tenant_id: tenant, rule_id: ruleId, contact_id: null, status: 'pending', current_step: 1,
+      execute_at: new Date(Date.now() - 60_000), context: JSON.stringify({ triggerType: 'tag_added' }),
+      steps: JSON.stringify([{ type: 'delay', delayMinutes: 60 }, { type: 'action', actionType: 'create_task', actionConfig: { taskTitle: title } }]),
+    })
+    knex.db.tables.automation_scheduled_steps.push(
+      parked('p-a', 'org-a', 'tenant-a', 'r-other-trigger', 'After the wait (a)'),
+      parked('p-b', 'org-b', 'tenant-b', 'r-b', 'After the wait (b)'),
+    )
+
+    mockSession.current = { orgId: 'org-a', tenantId: 'tenant-a' }
+    const res = await call({})
+    expect((await res.json()).data.delayedSteps).toEqual({ processed: 1, total: 1 })
+    const titles = () => knex.db.tables.tasks.map((t: Record<string, unknown>) => t.title)
+    expect(titles()).toContain('After the wait (a)')
+    expect(titles()).not.toContain('After the wait (b)')
+
+    mockSession.current = null
+    const cron = await call({}, SECRET)
+    expect((await cron.json()).data.delayedSteps).toEqual({ processed: 1, total: 1 })
+    expect(titles()).toContain('After the wait (b)')
+    expect(knex.db.tables.automation_scheduled_steps.map((s: Record<string, unknown>) => s.status)).toEqual(['completed', 'completed'])
+  })
+
   it('two runs arriving together execute a rule once (the page load and the cron)', async () => {
     const knex = world()
     const scope = { organizationId: 'org-a', tenantId: 'tenant-a' }

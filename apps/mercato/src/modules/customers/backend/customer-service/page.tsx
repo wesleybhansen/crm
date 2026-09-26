@@ -36,6 +36,12 @@ type FlagScenario = { key: string; label: string; enabled: boolean; action: Flag
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; purpose?: string | null }
 type SourceMode = { mode: ReplyMode; threshold: number }
 type SourceModes = Record<string, SourceMode>
+const REPLY_MODE_LABELS: Record<ReplyMode, string> = {
+  draft: 'Draft for approval',
+  assisted: 'Answer routine requests',
+  auto: 'Auto-send',
+  hybrid: 'Hybrid',
+}
 type Settings = {
   enabled: boolean
   watchedConnectionIds: string[] | null
@@ -65,6 +71,13 @@ type ChatWidget = {
   public_page_enabled: boolean
   embedCode: string
   conversation_count?: number
+}
+// A saved reply (response_templates). Offered in the email composer and the queue.
+type ResponseTemplate = {
+  id: string
+  name: string
+  subject: string | null
+  body_text: string
 }
 type KnowledgeEntry = {
   id: string
@@ -100,9 +113,14 @@ export default function CustomerServiceSettingsPage() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  // null = watch all connected mailboxes. An array = only those ids.
-  const [watchedIds, setWatchedIds] = useState<string[] | null>(null)
+  // The ticked mailboxes. Empty = none: no email is drafted until one is ticked.
+  const [watchedIds, setWatchedIds] = useState<string[]>([])
   const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
+  // Per-mailbox reply-mode overrides (older setups, or set by the Chief of
+  // Staff). Shown so a mailbox that behaves differently is never a surprise;
+  // changing the mode above clears them (server side, cs-send-decision).
+  const [sourceModes, setSourceModes] = useState<SourceModes>({})
+  const [clearingOverrides, setClearingOverrides] = useState(false)
   const [hybridThreshold, setHybridThreshold] = useState(0.8)
   const [assisted, setAssisted] = useState<AssistedConfig>(DEFAULT_ASSISTED)
   const [assistedInquiryTypes, setAssistedInquiryTypes] = useState<AssistedInquiryOption[]>([])
@@ -329,7 +347,7 @@ export default function CustomerServiceSettingsPage() {
           || (fresh?.cs || []).find((c: EmailConnection) => !csInboxes.some(x => x.id === c.id))
         if (newConn) {
           setWatchedIds(prev => {
-            const next = prev === null ? [newConn.id] : (prev.includes(newConn.id) ? prev : [...prev, newConn.id])
+            const next = prev.includes(newConn.id) ? prev : [...prev, newConn.id]
             // Persist immediately so the inbox starts watching without a manual save.
             void persistSettings({ watchedConnectionIds: next })
             return next
@@ -352,8 +370,8 @@ export default function CustomerServiceSettingsPage() {
       await fetch(`/api/email/smtp?id=${id}`, { method: 'DELETE', credentials: 'include' })
       setCsInboxes(prev => prev.filter(c => c.id !== id))
       setConnections(prev => prev.filter(c => c.id !== id))
-      // Drop it from the watched list if it was explicitly selected.
-      setWatchedIds(prev => (prev === null ? prev : prev.filter(x => x !== id)))
+      // Drop it from the watched list if it was ticked.
+      setWatchedIds(prev => prev.filter(x => x !== id))
     } catch {}
     setCsDisconnecting(null)
   }
@@ -404,8 +422,13 @@ export default function CustomerServiceSettingsPage() {
       if (cancelled) return
       if (settingsRes?.ok && settingsRes.data) {
         const s: Settings = settingsRes.data
-        setWatchedIds(Array.isArray(s.watchedConnectionIds) ? s.watchedConnectionIds : null)
+        const watched = Array.isArray(s.watchedConnectionIds) ? s.watchedConnectionIds : []
+        setWatchedIds(watched)
+        // A ticked personal mailbox must stay visible, so open that list.
+        const personal: EmailConnection[] = connRes?.ok ? (connRes.data || []).filter((c: EmailConnection) => c.purpose !== 'customer_service') : []
+        if (personal.some(c => watched.includes(c.id))) setShowSharedMailboxes(true)
         setReplyMode(s.replyMode === 'auto' || s.replyMode === 'hybrid' || s.replyMode === 'assisted' ? s.replyMode : 'draft')
+        setSourceModes(s.sourceModes && typeof s.sourceModes === 'object' ? s.sourceModes : {})
         if (s.assisted) setAssisted(s.assisted)
         if (Array.isArray(s.assistedInquiryTypes)) setAssistedInquiryTypes(s.assistedInquiryTypes)
         if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
@@ -427,6 +450,7 @@ export default function CustomerServiceSettingsPage() {
       if (kbRes?.ok) setKnowledge(kbRes.data || [])
       // Load website chat widgets for the CS-owned Website Chat panel.
       void loadWidgets()
+      void loadTemplates()
       setLoading(false)
       // Mark hydration complete on the next tick so the state updates above do
       // not trip the autosave effect. From here on, only user edits autosave.
@@ -616,6 +640,76 @@ export default function CustomerServiceSettingsPage() {
     }
   }
 
+  // ---- Response templates (saved replies) ----
+  const [templates, setTemplates] = useState<ResponseTemplate[]>([])
+  const [tplError, setTplError] = useState('')
+  const [tplSaving, setTplSaving] = useState(false)
+  // null = adding a new template; an id = editing that template.
+  const [tplEditingId, setTplEditingId] = useState<string | null>(null)
+  const [tplName, setTplName] = useState('')
+  const [tplSubject, setTplSubject] = useState('')
+  const [tplBody, setTplBody] = useState('')
+
+  async function loadTemplates() {
+    const res = await fetch('/api/response-templates', { credentials: 'include' }).then(r => r.json()).catch(() => null)
+    if (res?.ok) setTemplates(res.data || [])
+  }
+
+  function resetTemplateForm() {
+    setTplEditingId(null)
+    setTplName('')
+    setTplSubject('')
+    setTplBody('')
+  }
+
+  function editTemplate(t: ResponseTemplate) {
+    setTplError('')
+    setTplEditingId(t.id)
+    setTplName(t.name)
+    setTplSubject(t.subject || '')
+    setTplBody(t.body_text)
+  }
+
+  async function saveTemplate() {
+    setTplError('')
+    if (!tplName.trim()) { setTplError('Give the template a name.'); return }
+    if (!tplBody.trim()) { setTplError('Write the template text.'); return }
+    setTplSaving(true)
+    try {
+      const res = await fetch('/api/response-templates', {
+        method: tplEditingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: tplEditingId || undefined, name: tplName, subject: tplSubject, bodyText: tplBody }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        resetTemplateForm()
+        await loadTemplates()
+      } else {
+        setTplError(data.error || 'Failed to save the template.')
+      }
+    } catch {
+      setTplError('Failed to save the template.')
+    }
+    setTplSaving(false)
+  }
+
+  async function deleteTemplate(t: ResponseTemplate) {
+    if (!confirm(`Delete the template "${t.name}"?`)) return
+    setTplError('')
+    const prev = templates
+    setTemplates(prev.filter(x => x.id !== t.id))
+    if (tplEditingId === t.id) resetTemplateForm()
+    try {
+      const res = await fetch(`/api/response-templates?id=${encodeURIComponent(t.id)}`, { method: 'DELETE', credentials: 'include' })
+      const data = await res.json()
+      if (!data.ok) { setTemplates(prev); setTplError(data.error || 'Failed to delete the template.') }
+    } catch {
+      setTemplates(prev); setTplError('Failed to delete the template.')
+    }
+  }
+
   // Update a single flag scenario by key (enabled / action / instructions).
   // Changing any field triggers the debounced autosave like the other settings.
   function updateFlagScenario(key: string, patch: Partial<FlagScenario>) {
@@ -668,14 +762,9 @@ export default function CustomerServiceSettingsPage() {
     setFlagScenarios(prev => prev.filter(s => s.key !== key))
   }
 
+  // Nothing ticked means no mailbox is watched (never "all of them").
   function toggleMailbox(id: string) {
-    setWatchedIds(prev => {
-      // Starting from "all": selecting one mailbox narrows to just that one.
-      if (prev === null) return [id]
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-      // Empty selection means watch all again.
-      return next.length === 0 ? null : next
-    })
+    setWatchedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
   }
 
   // Central PUT helper. The server derives `enabled` from the watched mailboxes,
@@ -683,7 +772,7 @@ export default function CustomerServiceSettingsPage() {
   // NOT send sourceModes anymore (one global reply mode applies to all mailboxes).
   // `overrides` lets callers persist a specific value (e.g. a just-added mailbox)
   // without waiting for a React state flush.
-  async function persistSettings(overrides?: { watchedConnectionIds?: string[] | null }) {
+  async function persistSettings(overrides?: { watchedConnectionIds?: string[] }) {
     const res = await fetch('/api/customer-service/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -733,7 +822,7 @@ export default function CustomerServiceSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchedIds, replyMode, hybridThreshold, signature, csSmsNumber, csChatEnabled, flagScenarios, assisted])
 
-  // Choosing Assisted for the first time turns email on and uses this
+  // Choosing "Answer routine requests" (stored as 'assisted') for the first time turns email on and uses this
   // browser's timezone for send hours. Nothing sends until an inquiry type is picked.
   function chooseReplyMode(mode: ReplyMode) {
     if (mode === 'assisted' && !assisted.channels.email && !assisted.channels.sms && assisted.inquiryTypes.length === 0) {
@@ -741,7 +830,29 @@ export default function CustomerServiceSettingsPage() {
       try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || timezone } catch {}
       setAssisted(prev => ({ ...prev, channels: { ...prev.channels, email: true }, sendWindow: { ...prev.sendWindow, timezone } }))
     }
+    // The save clears every per-mailbox override when the mode changes.
+    if (mode !== replyMode) setSourceModes({})
     setReplyMode(mode)
+  }
+
+  // "Use the mode above for every mailbox": drop the per-mailbox overrides now.
+  async function clearSourceModes() {
+    setClearingOverrides(true)
+    setError('')
+    try {
+      const res = await fetch('/api/customer-service/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sourceModes: {} }),
+      })
+      const data = await res.json().catch(() => null)
+      if (data?.ok) setSourceModes({})
+      else setError(data?.error || 'Could not clear the mailbox settings.')
+    } catch {
+      setError('Could not clear the mailbox settings.')
+    }
+    setClearingOverrides(false)
   }
 
   function toggleAssistedInquiry(key: string, on: boolean) {
@@ -758,12 +869,13 @@ export default function CustomerServiceSettingsPage() {
     })
   }
 
-  const watchingAll = watchedIds === null
   // Personal Inbox mailboxes are everything that is not a dedicated support inbox.
   const personalMailboxes = connections.filter(c => c.purpose !== 'customer_service')
   // The watch list shows the dedicated support inboxes by default. The user can
   // opt in to also watch their personal Inbox mailboxes.
   const visibleMailboxes = showSharedMailboxes ? connections : csInboxes
+  // Ticked mailboxes that are still connected (a removed one no longer counts).
+  const watchedCount = connections.filter(c => watchedIds.includes(c.id)).length
 
   // The feature is considered set up once at least one dedicated support inbox is
   // connected OR a dedicated customer-service SMS number is configured. Until
@@ -818,7 +930,7 @@ export default function CustomerServiceSettingsPage() {
                 {
                   mode: 'assisted' as ReplyMode,
                   icon: ShieldCheck,
-                  title: 'Assisted',
+                  title: 'Answer routine requests',
                   desc: 'Noli answers the everyday messages you pick, like showing requests, during your hours. Anything about price, legal or loan questions, or anything it is unsure of, waits for you.',
                   rounded: '',
                 },
@@ -857,6 +969,26 @@ export default function CustomerServiceSettingsPage() {
                 )
               })}
             </div>
+
+            {Object.keys(sourceModes).length > 0 && (
+              <div className="mt-3 rounded-lg border border-[rgba(217,119,6,.30)] bg-[rgba(217,119,6,.08)] px-4 py-3">
+                <p className="text-[12.5px] font-medium text-foreground">Some mailboxes use their own reply mode</p>
+                <ul className="mt-1 space-y-0.5">
+                  {Object.entries(sourceModes).map(([connectionId, override]) => {
+                    const conn = [...connections, ...csInboxes].find(c => c.id === connectionId)
+                    return (
+                      <li key={connectionId} className="text-xs text-muted-foreground break-words">
+                        <span className="text-foreground">{conn?.email_address || 'A mailbox that is no longer connected'}</span>: {REPLY_MODE_LABELS[override.mode] || override.mode}
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p className="text-xs text-muted-foreground mt-1.5">These override the mode above for that mailbox. Choosing a different mode above clears them.</p>
+                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={clearSourceModes} disabled={clearingOverrides}>
+                  {clearingOverrides ? 'Clearing...' : `Use ${REPLY_MODE_LABELS[replyMode]} for every mailbox`}
+                </Button>
+              </div>
+            )}
 
             {replyMode === 'assisted' && (
               <div id="assisted" className="mt-3 rounded-lg border divide-y">
@@ -993,7 +1125,7 @@ export default function CustomerServiceSettingsPage() {
               <Flag className="size-4 text-muted-foreground" /> Flag scenarios
             </h2>
             <p className="text-xs text-muted-foreground mb-3">
-              Tell Noli which situations to watch for. When an incoming message matches an enabled scenario, Noli flags it, drafts a reply using your instructions, and emails you an alert. Pause for review holds the reply in your queue, even in auto-send mode. Auto-send lets the reply go out on its own.
+              Tell Noli which situations to watch for. When an incoming message matches an enabled scenario, Noli flags it, drafts a reply using your instructions, and emails you an alert. Pause for review holds the reply in your queue, even in auto-send mode. Auto-send lets the reply go out on its own in Auto-send and Hybrid modes. In Draft for approval, every reply waits for you.
             </p>
             <div className="rounded-lg border divide-y">
               {flagScenarios.length === 0 ? (
@@ -1046,6 +1178,12 @@ export default function CustomerServiceSettingsPage() {
                 })
               )}
             </div>
+
+            {replyMode === 'draft' && flagScenarios.some(s => s.enabled && s.action === 'auto_send') && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Draft for approval is on, so replies for scenarios set to auto-send still wait in your queue.
+              </p>
+            )}
 
             {/* Add a custom scenario */}
             <div className="rounded-lg border mt-3">
@@ -1332,6 +1470,83 @@ export default function CustomerServiceSettingsPage() {
             </div>
 
           </section>
+
+          {/* Response templates (saved replies) */}
+          <section className="mb-8">
+            <h2 className="text-sm font-semibold mb-1 flex items-center gap-2">
+              <FileText className="size-4 text-muted-foreground" /> Response templates
+            </h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Saved replies you can drop into a drafted reply in the queue, or into an email you write to a contact. Use {'{{firstName}}'}, {'{{name}}'} or {'{{email}}'} to fill in the contact&apos;s details.
+            </p>
+
+            {tplError && (
+              <div className="mb-3 rounded-lg border border-[rgba(239,68,68,.26)] bg-[rgba(239,68,68,.10)] px-4 py-2 text-sm text-[#b91c1c] dark:text-[#f87171]">
+                {tplError}
+              </div>
+            )}
+
+            <div className="rounded-lg border divide-y mb-4">
+              {templates.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  No templates yet. Add your first one below.
+                </div>
+              ) : (
+                templates.map(t => (
+                  <div key={t.id} className={`flex items-start justify-between px-4 py-3 gap-3 ${tplEditingId === t.id ? 'selected-card' : ''}`}>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium break-words">{t.name}</p>
+                      {t.subject && <p className="text-[12.5px] text-muted-foreground truncate">Subject: {t.subject}</p>}
+                      <p className="text-xs text-muted-foreground line-clamp-2">{t.body_text}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button type="button" onClick={() => editTemplate(t)}
+                        className="inline-flex items-center justify-center size-10 sm:size-auto sm:p-1 text-muted-foreground hover:text-foreground transition" title="Edit template" aria-label={`Edit ${t.name}`}>
+                        <FileEdit className="size-4" />
+                      </button>
+                      <button type="button" onClick={() => deleteTemplate(t)}
+                        className="inline-flex items-center justify-center size-10 sm:size-auto sm:p-1 text-muted-foreground hover:text-[#b91c1c] transition" title="Delete template" aria-label={`Delete ${t.name}`}>
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="rounded-lg border mb-4">
+              <div className="px-4 py-3 border-b">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  {tplEditingId ? <FileEdit className="size-4 text-muted-foreground" /> : <Plus className="size-4 text-muted-foreground" />}
+                  {tplEditingId ? 'Edit template' : 'Add a template'}
+                </p>
+              </div>
+              <div className="px-4 py-3 space-y-3">
+                <input value={tplName} onChange={e => setTplName(e.target.value)} maxLength={120}
+                  placeholder="Name, e.g. Showing confirmation"
+                  aria-label="Template name"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                <input value={tplSubject} onChange={e => setTplSubject(e.target.value)} maxLength={300}
+                  placeholder="Email subject (optional)"
+                  aria-label="Template email subject"
+                  className="w-full rounded-md border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                <textarea value={tplBody} onChange={e => setTplBody(e.target.value)} maxLength={10000}
+                  placeholder={'Hi {{firstName}},\n\nThanks for reaching out...'}
+                  aria-label="Template text"
+                  className="w-full rounded-md border bg-card px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring h-28" />
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" onClick={saveTemplate} disabled={tplSaving || !tplName.trim() || !tplBody.trim()} className="min-h-10 sm:min-h-0">
+                    {tplSaving ? 'Saving...' : tplEditingId ? <><Check className="size-3.5 mr-1" /> Save changes</> : <><Plus className="size-3.5 mr-1" /> Add template</>}
+                  </Button>
+                  {tplEditingId && (
+                    <Button type="button" size="sm" variant="ghost" onClick={resetTemplateForm} disabled={tplSaving} className="min-h-10 sm:min-h-0">
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
         </>
       )}
         </TabsContent>
@@ -1437,7 +1652,7 @@ export default function CustomerServiceSettingsPage() {
             <div className="rounded-lg border divide-y">
               <div className="px-4 py-3 flex items-start justify-between gap-3">
                 <p className="text-xs text-muted-foreground">
-                  Your dedicated support inboxes are watched automatically. Leave everything unchecked to watch every support inbox, or check specific ones to narrow it down.
+                  Check each mailbox Noli should answer. Nothing is drafted from email until at least one is checked. A support inbox is checked for you when you connect it.
                 </p>
                 {personalMailboxes.length > 0 && (
                   <label className="flex items-center gap-1.5 shrink-0 cursor-pointer">
@@ -1454,7 +1669,7 @@ export default function CustomerServiceSettingsPage() {
                 </div>
               ) : (
                 visibleMailboxes.map(conn => {
-                  const checked = watchingAll ? false : (watchedIds?.includes(conn.id) ?? false)
+                  const checked = watchedIds.includes(conn.id)
                   return (
                     <label key={conn.id} className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/30 transition">
                       <div className="flex items-center gap-3 min-w-0">
@@ -1475,7 +1690,9 @@ export default function CustomerServiceSettingsPage() {
               {visibleMailboxes.length > 0 && (
                 <div className="px-4 py-2.5 bg-muted/30">
                   <p className="text-[12.5px] text-muted-foreground">
-                    {watchingAll ? 'Watching all connected mailboxes.' : `Watching ${watchedIds?.length} selected mailbox${watchedIds?.length === 1 ? '' : 'es'}.`}
+                    {watchedCount === 0
+                      ? 'No mailbox checked. Noli drafts no email replies until you check one.'
+                      : `Watching ${watchedCount} mailbox${watchedCount === 1 ? '' : 'es'}.`}
                   </p>
                 </div>
               )}
@@ -1548,7 +1765,7 @@ export default function CustomerServiceSettingsPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Handle website chat</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Route incoming chat messages through Customer Service. Uses your reply mode, flag scenarios, and knowledge. Turning this off pauses automatic answers on your chat widgets.
+                    Route incoming chat messages through Customer Service. Uses your flag scenarios and knowledge. Visitors get answers right away, whatever your reply mode; a message that matches a pause scenario, or that Noli is not sure about, waits for you. Turning this off pauses automatic answers on your chat widgets.
                   </p>
                 </div>
                 <input type="checkbox" checked={csChatEnabled}

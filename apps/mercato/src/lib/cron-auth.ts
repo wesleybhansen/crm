@@ -23,3 +23,12 @@ export function requireProcessAuth(req: Request, secret: string | undefined): Ne
   }
   return null
 }
+
+/** True when the request carries the box cron's Bearer secret (constant time).
+ * For routes that serve both a signed-in user and the cron. */
+export function isProcessServiceCall(req: Request, secret: string | undefined): boolean {
+  if (!secret) return false
+  const got = Buffer.from(req.headers.get('authorization') ?? '', 'utf8')
+  const expected = Buffer.from(`Bearer ${secret}`, 'utf8')
+  return got.length === expected.length && crypto.timingSafeEqual(got, expected)
+}

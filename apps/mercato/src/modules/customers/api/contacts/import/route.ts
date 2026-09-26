@@ -53,11 +53,11 @@ export async function POST(req: Request) {
           await tagContactSource(knex, { tenantId: auth.tenantId, organizationId: auth.orgId }, id, 'import', importDetail)
         } catch {}
 
-        // Fire automation triggers
+        // "Contact created" automations and sequences, once per contact
         try {
-          const { executeAutomationRules } = await import('@/modules/sequences/lib/automation-execute')
-          executeAutomationRules(knex, auth.orgId, auth.tenantId, 'contact_created', {
-            contactId: id, contactEmail: email, contactName: name,
+          const { dispatchContactCreated } = await import('@/modules/sequences/lib/automation-dispatch')
+          dispatchContactCreated(knex, {
+            organizationId: auth.orgId, tenantId: auth.tenantId, contactId: id, source: source || 'import',
           }).catch(() => {})
         } catch {}
 

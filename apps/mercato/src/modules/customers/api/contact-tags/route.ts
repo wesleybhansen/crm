@@ -106,14 +106,14 @@ export async function POST(req: Request) {
     // Check sequence triggers for tag assignment
     if (!existing) {
       checkSequenceTriggers(knex, auth.orgId, auth.tenantId, 'tag_added', {
-        contactId, tagSlug: slug,
+        contactId, tagId: tag.id, tagSlug: slug, tagName: tag.name,
       }).catch(() => {})
     }
 
     // Fire automation rules for tag addition
     if (!existing) {
       executeAutomationRules(knex, auth.orgId, auth.tenantId, 'tag_added', {
-        contactId, tagSlug: slug, tagName: tag.name,
+        contactId, tagId: tag.id, tagSlug: slug, tagName: tag.name,
       }).catch(() => {})
     }
 

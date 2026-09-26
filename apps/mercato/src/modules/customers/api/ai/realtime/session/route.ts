@@ -145,7 +145,7 @@ When editing/deleting, use the id= values from the CRM DATA section below. You c
     // Load CRM data context
     const [contactCount, dealCount, taskCount, invoiceCount, sequences, emailLists, landingPages, forms, bookingPages] = await Promise.all([
       queryOne('SELECT count(*)::int as total FROM customer_entities WHERE organization_id = $1 AND deleted_at IS NULL AND kind = $2', [orgId, 'person']),
-      queryOne('SELECT count(*)::int as total, count(*) filter (where status IS NULL or status NOT IN ($2,$3))::int as open_count, coalesce(sum(value_amount),0)::numeric as total_value FROM customer_deals WHERE organization_id = $1 AND deleted_at IS NULL', [orgId, 'win', 'lose']),
+      queryOne('SELECT count(*)::int as total, count(*) filter (where status IS NULL or NOT (status = ANY($2::text[])))::int as open_count, coalesce(sum(value_amount),0)::numeric as total_value FROM customer_deals WHERE organization_id = $1 AND deleted_at IS NULL', [orgId, ['win', 'won', 'lost', 'loose', 'lose']]),
       queryOne('SELECT count(*) filter (where is_done = false)::int as open, count(*) filter (where is_done = true)::int as done FROM tasks WHERE organization_id = $1', [orgId]),
       queryOne('SELECT count(*)::int as total FROM invoices WHERE organization_id = $1', [orgId]),
       query('SELECT id, name, is_active FROM sequences WHERE organization_id = $1 LIMIT 10', [orgId]).catch(() => []),
@@ -289,7 +289,7 @@ BEHAVIOR GUIDELINES:
 - For COMPLEX WORKFLOWS (landing pages, courses, funnels, sequences): ask follow-up questions FIRST to gather all needed information, then call the tool. Don't assume details.
 - For SIMPLE ACTIONS (create contact, send email, create task): execute immediately with the info given. Ask only if critical info is missing (e.g., no email address for send_email).
 - You CAN create booking pages with real links. Use the create_booking_page tool. After creation, the tool returns the actual booking URL — share it with the user. Existing booking page links are listed in the BOOKING PAGES section above.
-- Always confirm before taking DESTRUCTIVE actions (delete, send to many contacts).
+- Deleting, sending (email, text, invoice, sequence enrollment), publishing, closing a deal, and money actions wait for the user to click Confirm on screen before they run. When you call one, say briefly that it is waiting for their confirmation. Never say it is done until the tool result comes back ok; if the result says they cancelled, acknowledge it and do not retry.
 - If a tool call fails, report the error honestly. Do NOT retry automatically — tell the user what went wrong.
 - When the user asks about Google Meet links: you cannot create Google Meet links directly. Suggest they create the meeting in Google Calendar and share the link.
 

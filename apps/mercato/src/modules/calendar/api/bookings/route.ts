@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOrMergeContact } from '@/modules/customers/lib/dedup'
 import { canTransitionBookingStatus } from '../../lib/booking-status'
+import { findBusyConflict, loadCrmBusyIntervals, lockOrganizationBookings } from '../../lib/booking-availability'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['calendar.view'] },
@@ -51,17 +52,18 @@ export async function POST(req: Request) {
     if (!page) return NextResponse.json({ ok: false, error: 'Booking page not found' }, { status: 404 })
 
     const start = new Date(startTime)
+    if (Number.isNaN(start.getTime())) {
+      return NextResponse.json({ ok: false, error: 'startTime is not a valid date' }, { status: 400 })
+    }
+    if (start.getTime() <= Date.now()) {
+      return NextResponse.json({ ok: false, error: 'This time slot has already passed' }, { status: 409 })
+    }
     const end = new Date(start.getTime() + (page.duration_minutes || 30) * 60000)
 
-    // Check for CRM booking conflicts
-    const conflict = await knex('bookings')
-      .where('booking_page_id', bookingPageId)
-      .where('status', 'confirmed')
-      .where(function() {
-        this.where('start_time', '<', end).andWhere('end_time', '>', start)
-      }).first()
-
-    if (conflict) {
+    // Same rule as the booking page: the CRM's own calendar (confirmed and
+    // pending bookings, blocked time, manual events) always counts, with or
+    // without Google (lib/booking-availability.ts).
+    if (findBusyConflict(await loadCrmBusyIntervals(knex, page, start, end), start, end)) {
       return NextResponse.json({ ok: false, error: 'This time slot is no longer available' }, { status: 409 })
     }
 
@@ -88,20 +90,14 @@ export async function POST(req: Request) {
     const confirmationTokenExpiresAt = autoConfirm ? null : new Date(Date.now() + 72 * 60 * 60 * 1000)
 
     // Double-book race: the conflict check above is only advisory — two
-    // concurrent POSTs for the same slot can both pass it. Serialize on the
-    // booking page row (FOR UPDATE) and re-check inside the transaction so
-    // exactly one insert wins.
+    // concurrent POSTs for overlapping slots can both pass it. Serialize guest
+    // bookings per organization (conflicts span the owner's pages) and re-check
+    // inside the transaction with the same rule, so exactly one insert wins.
     let slotTaken = false
     await knex.transaction(async (trx) => {
-      await trx('booking_pages').where('id', bookingPageId).forUpdate().first()
-      const raceConflict = await trx('bookings')
-        .where('booking_page_id', bookingPageId)
-        .where('status', 'confirmed')
-        .where(function () {
-          this.where('start_time', '<', end).andWhere('end_time', '>', start)
-        })
-        .first()
-      if (raceConflict) {
+      await lockOrganizationBookings(trx, page.organization_id)
+      const busyNow = await loadCrmBusyIntervals(trx, page, start, end)
+      if (findBusyConflict(busyNow, start, end)) {
         slotTaken = true
         return
       }

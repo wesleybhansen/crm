@@ -1351,6 +1351,11 @@ function SlideOver({
       setFormError('Add at least one action step.')
       return
     }
+    // A condition row with no value is not a filter: ask for one instead of saving it.
+    if (conditions.some(c => c.operator !== 'is_set' && c.operator !== 'is_not_set' && String(c.value ?? '').trim() === '')) {
+      setFormError('Enter a value for each condition, or remove the condition.')
+      return
+    }
     setFormError(null)
     onSave({
       name: name.trim(),
@@ -3188,7 +3193,7 @@ export default function AutomationsV2Page() {
                       />
                       <div>
                         <div className="text-xs font-medium">Execute</div>
-                        <div className="text-[11px] text-muted-foreground">Actually run the automation against this contact</div>
+                        <div className="text-[11px] text-muted-foreground">Actually run the automation for this contact. Emails and texts really send. Needs a saved contact.</div>
                       </div>
                     </label>
                   </div>
@@ -3246,7 +3251,7 @@ export default function AutomationsV2Page() {
                               }
                               <span>
                                 <span className="font-medium">{condition.field}</span> {condition.operator} {condition.value != null ? `"${condition.value}"` : ''}
-                                <span className="opacity-70"> (actual: {condition.actual != null ? `"${condition.actual}"` : 'empty'})</span>
+                                <span className="opacity-70">{condition.error ? ` (${condition.error})` : condition.note ? ` (${condition.note})` : ` (actual: ${condition.actual != null && condition.actual !== '' ? `"${condition.actual}"` : 'empty'})`}</span>
                               </span>
                             </div>
                           ))}
@@ -3258,26 +3263,41 @@ export default function AutomationsV2Page() {
                     <div>
                       <h5 className="text-[11px] font-medium text-muted-foreground mb-1.5">Steps</h5>
                       <div className="space-y-1">
-                        {testResults.steps.map((step: any) => (
-                          <div key={step.index} className={`flex items-start gap-2 text-xs rounded-md px-2.5 py-1.5 ${
-                            step.type === 'delay'
-                              ? 'bg-foreground/5 text-muted-foreground'
-                              : step.wouldExecute
-                                ? 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:text-[#34d399]'
-                                : 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:text-[#f87171]'
-                          }`}>
-                            {step.type === 'delay' ? (
-                              <Timer className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
-                            ) : step.wouldExecute ? (
-                              <CheckCircle2 className="size-3.5 shrink-0 mt-0.5 text-[#047857] dark:text-[#34d399]" />
-                            ) : (
-                              <XCircle className="size-3.5 shrink-0 mt-0.5 text-[#b91c1c] dark:text-[#f87171]" />
-                            )}
-                            <span>
-                              <span className="font-medium">{step.index + 1}.</span> {step.description}
-                            </span>
-                          </div>
-                        ))}
+                        {testResults.steps.map((step: any) => {
+                          // After a real run each step carries what actually happened.
+                          const ran: string | undefined = step.result?.status
+                          const failed = ran === 'failed' || (!ran && step.type !== 'delay' && !step.wouldExecute)
+                          const muted = step.type === 'delay' || ran === 'skipped' || ran === 'waiting' || ran === 'not_run'
+                          const resultLabel = ran === 'executed' ? 'Done' : ran === 'failed' ? 'Failed' : ran === 'skipped' ? 'Skipped'
+                            : ran === 'scheduled' ? 'Scheduled' : ran === 'waiting' ? 'Waiting' : ran === 'not_run' ? 'Not run' : null
+                          return (
+                            <div key={step.index} className={`flex items-start gap-2 text-xs rounded-md px-2.5 py-1.5 ${
+                              failed
+                                ? 'bg-[rgba(239,68,68,.10)] text-[#b91c1c] dark:text-[#f87171]'
+                                : muted
+                                  ? 'bg-foreground/5 text-muted-foreground'
+                                  : 'bg-[rgba(16,185,129,.10)] text-[#047857] dark:text-[#34d399]'
+                            }`}>
+                              {step.type === 'delay' ? (
+                                <Timer className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+                              ) : failed ? (
+                                <XCircle className="size-3.5 shrink-0 mt-0.5 text-[#b91c1c] dark:text-[#f87171]" />
+                              ) : muted ? (
+                                <SkipForward className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+                              ) : (
+                                <CheckCircle2 className="size-3.5 shrink-0 mt-0.5 text-[#047857] dark:text-[#34d399]" />
+                              )}
+                              <span className="min-w-0">
+                                <span className="font-medium">{step.index + 1}.</span> {step.description}
+                                {resultLabel && (
+                                  <span className="block opacity-80 break-words">
+                                    <span className="font-medium">{resultLabel}</span>{step.result?.detail ? `: ${step.result.detail}` : ''}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
 

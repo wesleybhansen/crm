@@ -27,7 +27,7 @@ export default async function handler(payload: Payload, ctx: { resolve: <T = unk
         bookingPageId: booking.bookingPageId ?? payload.bookingPageId ?? null,
         startTime: booking.startTime,
       },
-      sequenceTrigger: { type: 'booking_created' },
+      sequenceTrigger: { type: 'booking_created', bookingPageId: booking.bookingPageId ?? payload.bookingPageId ?? null },
     })
   } catch (err) {
     console.error('[sequences.automation-booking-created] dispatch failed', { bookingId: payload.id, err })

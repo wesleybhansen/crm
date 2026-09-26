@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { isPublicSlugTaken, uniquePublicSlug } from '@/lib/public-slug'
 import { shouldRegenerateSlug, slugifyFormName } from '../lib/slug'
+import { withNewFormDefaults } from '../lib/settings-defaults'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -83,6 +84,10 @@ export async function POST(req: Request, ctx: any) {
 
     const id = require('crypto').randomUUID()
     const now = new Date()
+    // New forms that capture an email create CRM contacts unless the caller
+    // chose otherwise (lib/settings-defaults.ts). PUT never applies this, so
+    // existing forms keep their setting.
+    const settings = withNewFormDefaults(body.settings, Array.isArray(body.fields) ? body.fields : [])
 
     await knex('forms').insert({
       id,
@@ -93,7 +98,7 @@ export async function POST(req: Request, ctx: any) {
       description: body.description || null,
       fields: JSON.stringify(body.fields || []),
       theme: body.theme ? JSON.stringify(body.theme) : JSON.stringify({}),
-      settings: body.settings ? JSON.stringify(body.settings) : JSON.stringify({}),
+      settings: JSON.stringify(settings),
       status: body.status || 'draft',
       template_id: body.templateId || null,
       owner_user_id: scope.userId,

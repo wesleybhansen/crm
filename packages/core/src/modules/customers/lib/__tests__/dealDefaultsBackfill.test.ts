@@ -21,7 +21,10 @@ describe('Migration20260925153000 (deal defaults backfill)', () => {
   it('seeds the shared default stages, statuses and currencies', async () => {
     const sql = (await collectSql()).join('\n')
     for (const stage of PIPELINE_STAGE_DEFAULTS) expect(sql).toContain(`'${stage.label}'`)
-    for (const status of DEAL_STATUS_DEFAULTS) expect(sql).toContain(`'${status.value}'`)
+    // This backfill predates the lost status rename: it seeds 'loose', which
+    // Migration20260929120000 then renames to 'lost'.
+    const seededAs: Record<string, string> = { lost: 'loose' }
+    for (const status of DEAL_STATUS_DEFAULTS) expect(sql).toContain(`'${seededAs[status.value] ?? status.value}'`)
     expect(sql).toContain("'Default Pipeline'")
     expect(sql).toContain("'USD'")
     expect(sql).toContain("'currency'")

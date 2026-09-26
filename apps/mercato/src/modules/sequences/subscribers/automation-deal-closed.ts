@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { dispatchAutomationTrigger, loadDealContext } from '../lib/automation-dispatch'
 
-/** A deal was won or closed: run the org's `deal_won` automation rules, once per deal. */
+/** A deal was won or closed: run the org's `deal_won` automation rules and sequences, once per deal. */
 export const metadata = {
   event: 'customers.deal.closed',
   persistent: true,
@@ -32,6 +32,8 @@ export default async function handler(payload: Payload, ctx: { resolve: <T = unk
         amount: deal.amount,
         closedAt: payload.closedAt ?? null,
       },
+      // Sequences whose trigger is "Deal won" enroll the deal's contact.
+      sequenceTrigger: { type: 'deal_won' },
     })
   } catch (err) {
     console.error('[sequences.automation-deal-won] dispatch failed', { dealId: payload.id, err })

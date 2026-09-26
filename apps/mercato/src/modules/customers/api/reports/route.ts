@@ -3,6 +3,18 @@ export const metadata = { path: '/reports', GET: { requireAuth: true } }
 import { NextResponse } from 'next/server'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { query, queryOne } from '@/lib/db'
+import {
+  LOST_STATUS_VALUES,
+  WON_STATUS_VALUES,
+  winRatePercent,
+} from '@open-mercato/core/modules/customers/lib/dealStatus'
+
+// Won/lost as stored, legacy spellings included ('won'; 'loose' and 'lose'
+// for lost): counting only 'lose'/'lost' missed every deal marked Lost in the
+// deal form ('loose') and inflated the win rate.
+const WON = [...WON_STATUS_VALUES]
+const LOST = [...LOST_STATUS_VALUES]
+const DECIDED = [...WON, ...LOST]
 
 export async function GET(req: Request) {
   const auth = await getAuthFromCookies()
@@ -26,11 +38,11 @@ export async function GET(req: Request) {
     // Deals won/lost last 30 days
     const dealOutcomesRow = await queryOne(
       `SELECT
-        count(*) filter (where status = 'win')::int as won,
-        count(*) filter (where status = 'lose' or status = 'lost')::int as lost,
-        coalesce(sum(value_amount) filter (where status = 'win'), 0)::numeric as revenue
+        count(*) filter (where status = ANY($4::text[]))::int as won,
+        count(*) filter (where status = ANY($5::text[]))::int as lost,
+        coalesce(sum(value_amount) filter (where status = ANY($4::text[])), 0)::numeric as revenue
        FROM customer_deals WHERE tenant_id = $1 AND organization_id = $2 AND deleted_at IS NULL AND updated_at >= $3`,
-      [tenantId, orgId, thirtyDaysAgo]
+      [tenantId, orgId, thirtyDaysAgo, WON, LOST]
     )
     const dealOutcomes = {
       won: Number(dealOutcomesRow?.won || 0),
@@ -129,14 +141,14 @@ export async function GET(req: Request) {
       const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
       const rows = await query(
         `SELECT coalesce(nullif(trim(source), ''), 'unknown') as source,
-          count(*) filter (where status = 'win')::int as won,
-          count(*) filter (where status in ('lose', 'lost'))::int as lost,
-          coalesce(sum(value_amount) filter (where status = 'win'), 0)::numeric as won_value
+          count(*) filter (where status = ANY($4::text[]))::int as won,
+          count(*) filter (where status = ANY($5::text[]))::int as lost,
+          coalesce(sum(value_amount) filter (where status = ANY($4::text[])), 0)::numeric as won_value
          FROM customer_deals
          WHERE tenant_id = $1 AND organization_id = $2 AND deleted_at IS NULL
-           AND status in ('win', 'lose', 'lost') AND updated_at >= $3
+           AND status = ANY($6::text[]) AND updated_at >= $3
          GROUP BY 1 ORDER BY won DESC LIMIT 10`,
-        [tenantId, orgId, ninetyDaysAgo]
+        [tenantId, orgId, ninetyDaysAgo, WON, LOST, DECIDED]
       )
       winLossBySource = (rows || []).map((r: Record<string, unknown>) => {
         const won = Number(r.won || 0)
@@ -145,7 +157,7 @@ export async function GET(req: Request) {
           source: String(r.source),
           won,
           lost,
-          winRate: won + lost > 0 ? Math.round((won / (won + lost)) * 100) : 0,
+          winRate: winRatePercent(won, lost),
           wonValue: Number(r.won_value || 0),
         }
       })
@@ -160,8 +172,8 @@ export async function GET(req: Request) {
           avg(extract(epoch from (updated_at - created_at)) / 86400.0)::numeric as avg_days
          FROM customer_deals
          WHERE tenant_id = $1 AND organization_id = $2 AND deleted_at IS NULL
-           AND status = 'win' AND updated_at >= $3`,
-        [tenantId, orgId, ninetyDaysAgo]
+           AND status = ANY($4::text[]) AND updated_at >= $3`,
+        [tenantId, orgId, ninetyDaysAgo, WON]
       )
       if (row && Number(row.sampled) > 0) {
         salesVelocity = { avgDaysToWin: Math.round(Number(row.avg_days) * 10) / 10, sampled: Number(row.sampled) }

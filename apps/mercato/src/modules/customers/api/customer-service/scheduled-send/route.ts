@@ -12,6 +12,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { requireProcessAuth } from '@/lib/cron-auth'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { isWithinSendWindow, logAssistedActivity, normalizeAssistedConfig } from '@/modules/customers/lib/assisted-send'
+import { parseSourceModes, scheduledSendStillAllowed } from '@/modules/customers/lib/cs-send-decision'
 
 // If this many scheduled auto-sends are cancelled by the user within the window,
 // the org's auto-sending trips the circuit breaker and pauses itself.
@@ -117,12 +118,34 @@ export async function POST(req: Request) {
         // window ends outside them: such a reply becomes a plain draft.
         const assistedConfig = normalizeAssistedConfig(settings.assisted_config)
         const insideSendHours = isWithinSendWindow(assistedConfig.sendWindow, now)
+        const sourceModes = parseSourceModes(settings.source_modes)
 
         for (const row of due) {
           if (remaining <= 0) break
           const meta = safeParse(row.metadata)
           const payload = safeParse(row.payload)
           const assistedMeta = meta.assisted && typeof meta.assisted === 'object' ? meta.assisted : null
+          // Draft for approval means nothing sends on its own. The mode is
+          // re-read now, not when the reply was held: if the owner switched to
+          // Draft for approval during the hold window, the reply stays a draft.
+          const sourceConnectionId = typeof meta.source_connection_id === 'string' ? meta.source_connection_id : null
+          if (!scheduledSendStillAllowed({ globalMode: settings.reply_mode, sourceModes, sourceConnectionId })) {
+            await knex('inbox_proposal_actions')
+              .where('id', row.action_id)
+              .where('organization_id', orgId)
+              .where('tenant_id', tenantId)
+              .where('status', 'pending')
+              .update({
+                updated_at: now,
+                metadata: JSON.stringify({
+                  ...meta,
+                  auto_scheduled: false,
+                  unscheduled_reason: 'draft_mode',
+                  ...(assistedMeta ? { assisted: { ...assistedMeta, holdReasons: [{ key: 'draft_mode', label: 'Draft for approval is on' }] } } : {}),
+                }),
+              })
+            continue
+          }
           if (assistedMeta && !insideSendHours) {
             await knex('inbox_proposal_actions')
               .where('id', row.action_id)

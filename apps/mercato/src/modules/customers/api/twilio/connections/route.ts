@@ -11,13 +11,14 @@ import { sealSecretForTenant, tenantEncryptionFromContainer } from '@open-mercat
 // Get the org's Twilio connection status
 export async function GET() {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId || !auth?.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   try {
     const container = await createRequestContainer()
     const knex = (container.resolve('em') as EntityManager).getKnex()
 
     const connection = await knex('twilio_connections')
+      .where('tenant_id', auth.tenantId)
       .where('organization_id', auth.orgId)
       .where('is_active', true)
       .first()
@@ -94,11 +95,12 @@ export async function POST(req: Request) {
 
     // Upsert into twilio_connections
     const existing = await knex('twilio_connections')
+      .where('tenant_id', auth.tenantId)
       .where('organization_id', auth.orgId)
       .first()
 
     if (existing) {
-      await knex('twilio_connections').where('id', existing.id).update({
+      await knex('twilio_connections').where('id', existing.id).where('organization_id', auth.orgId).update({
         account_sid: accountSid,
         auth_token: sealedAuthToken,
         phone_number: phoneNumber,
@@ -134,7 +136,7 @@ export async function POST(req: Request) {
 // Disconnect Twilio account
 export async function DELETE() {
   const auth = await getAuthFromCookies()
-  if (!auth?.orgId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  if (!auth?.orgId || !auth?.tenantId) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   try {
     const container = await createRequestContainer()
@@ -144,6 +146,7 @@ export async function DELETE() {
     // scrubbed value. Twilio has no OAuth grant to revoke: the credential is the
     // customer's own account token, which they rotate in the Twilio console.
     await knex('twilio_connections')
+      .where('tenant_id', auth.tenantId)
       .where('organization_id', auth.orgId)
       .update({ is_active: false, auth_token: '', updated_at: new Date() })
 

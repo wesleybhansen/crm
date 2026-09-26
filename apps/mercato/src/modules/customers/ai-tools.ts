@@ -23,6 +23,8 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { aiTools as coreCustomersTools } from '@open-mercato/core/modules/customers/ai-tools'
 import { sendReply } from '@/modules/customers/lib/send-reply'
+import { parseWatchedConnectionIds } from '@/modules/customers/lib/cs-mailboxes'
+import { sourceModesAfterSave, type SourceModes } from '@/modules/customers/lib/cs-send-decision'
 
 type ToolContext = {
   tenantId: string | null
@@ -174,13 +176,13 @@ function parseSourceModes(raw: any): Record<string, { mode: string; threshold: n
 
 // Build stored source_modes from tool input, keeping only entries for watched
 // connections and with valid mode/threshold. watched === null = watch all (any id ok).
-function normalizeSourceModesInput(input: any, watched: string[] | null): Record<string, { mode: string; threshold: number }> {
+function normalizeSourceModesInput(input: any, watched: string[]): Record<string, { mode: string; threshold: number }> {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
-  const allowed = watched && watched.length > 0 ? new Set(watched) : null
+  const allowed = new Set(watched)
   const out: Record<string, { mode: string; threshold: number }> = {}
   for (const [k, v] of Object.entries(input)) {
     if (typeof k !== 'string' || !k) continue
-    if (allowed && !allowed.has(k)) continue
+    if (!allowed.has(k)) continue
     if (!v || typeof v !== 'object') continue
     const mode = (v as any).mode
     if (!VALID_MODES.has(mode)) continue
@@ -197,12 +199,12 @@ function previewOf(content: string): string {
 function serializeSettings(row: any) {
   if (!row) {
     // No saved row: seed the full default flag-scenario list so the COS sees it.
-    return { enabled: false, watchedConnectionIds: null, replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })) }
+    return { enabled: false, watchedConnectionIds: [], replyMode: 'draft', hybridConfidenceThreshold: 0.8, sourceModes: {}, signature: null, flagScenarios: DEFAULT_FLAG_SCENARIOS.map((s) => ({ ...s })) }
   }
   return {
     id: row.id,
     enabled: !!row.enabled,
-    watchedConnectionIds: row.watched_connection_ids ?? null,
+    watchedConnectionIds: parseWatchedConnectionIds(row.watched_connection_ids),
     replyMode: row.reply_mode || 'draft',
     hybridConfidenceThreshold: row.hybrid_confidence_threshold != null ? Number(row.hybrid_confidence_threshold) : 0.8,
     sourceModes: parseSourceModes(row.source_modes),
@@ -233,7 +235,7 @@ function serializeKnowledgeRow(row: any) {
 const getSettingsTool: AiToolDefinition = {
   name: 'customer_service_get_settings',
   description: `Get the customer-service auto-reply configuration for the authenticated organization. Use this to see whether customer service is turned on, how replies are handled, and which email accounts are watched.
-Returns: { enabled, watchedConnectionIds (string[] or null = all active accounts), replyMode (draft|auto|hybrid|assisted), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, flagScenarios, createdAt, updatedAt }. Returns defaults if not yet set up.
+Returns: { enabled, watchedConnectionIds (the email connection ids Customer Service answers; an empty list means none, so no email is drafted), replyMode (draft|auto|hybrid|assisted), hybridConfidenceThreshold (0..1), sourceModes (per-mailbox overrides keyed by connection id), signature, flagScenarios, createdAt, updatedAt }. Returns defaults if not yet set up.
 flagScenarios is the list of special situations the assistant watches for. Always includes the 6 canonical scenarios, plus any user-defined custom scenarios the org has added (their keys start with "custom_"): [{ key, label, enabled, action ("pause" = hold the reply for a human, "auto_send" = let the assistant reply per its instructions), instructions (extra guidance for that scenario) }]. Canonical keys: angry_or_upset, incoherent, cancel, refund, complaint, legal.`,
   inputSchema: z.object({}),
   requiredFeatures: ['email.view'],
@@ -252,14 +254,14 @@ flagScenarios is the list of special situations the assistant watches for. Alway
 const updateSettingsTool: AiToolDefinition = {
   name: 'customer_service_update_settings',
   description: `Set up or modify the customer-service auto-reply configuration for the authenticated organization. Upserts the single settings row. Only provided fields are changed; omitted fields keep their current value.
-replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1), "assisted" auto-sends only the inquiry types, channels and send hours the owner chose in the Customer Service settings when every safety check passes (everything else waits for approval). This is the account-wide default.
-watchedConnectionIds: list of email connection ids to watch, or omit / pass an empty list to watch all active accounts.
+replyMode: "draft" queues replies for human approval, "auto" sends automatically, "hybrid" auto-sends only when the model's confidence is at or above hybridConfidenceThreshold (clamped to 0..1), "assisted" (shown to the owner as "Answer routine requests") auto-sends only the inquiry types, channels and send hours the owner chose in the Customer Service settings when every safety check passes (everything else waits for approval). This is the account-wide default.
+watchedConnectionIds: the email connection ids to watch. An empty list means NO mailbox (no email is drafted); omit it to keep the current list.
 sourceModes: optional per-mailbox overrides, keyed by email connection id, e.g. { "<connectionId>": { "mode": "auto", "threshold": 0.8 } }. Each overrides the account default for that specific mailbox. Only ids in the watched list are kept. Threshold is clamped to 0..1. Omit to leave per-mailbox overrides unchanged.
 flagScenarios: optional list to turn special situations on/off, choose pause-vs-auto, and set per-scenario instructions. Pass an array of { key, label?, enabled?, action? ("pause"|"auto_send"), instructions? }. The 6 canonical keys (angry_or_upset, incoherent, cancel, refund, complaint, legal) always exist with fixed labels; a canonical scenario you omit from the array resets to its default (disabled + pause). You can ALSO add custom scenarios: give a key that starts with "custom_" (e.g. "custom_wholesale") AND a non-empty label; valid customs are kept and appended after the canonical set. Include an existing custom in the array to keep it; omit it to remove it. Unknown non-custom keys and customs missing a label are ignored. Omit the whole flagScenarios arg to leave scenarios unchanged.
 Returns the saved settings.`,
   inputSchema: z.object({
     enabled: z.boolean().optional().describe('Turn customer service on or off'),
-    watchedConnectionIds: z.array(z.string()).optional().describe('Email connection ids to watch; empty = all active accounts'),
+    watchedConnectionIds: z.array(z.string()).optional().describe('Email connection ids to watch; empty = no mailbox (nothing drafted from email); omit to keep the current list'),
     replyMode: z.enum(['draft', 'auto', 'hybrid', 'assisted']).optional(),
     hybridConfidenceThreshold: z.number().optional().describe('Confidence cutoff for hybrid auto-send, 0..1'),
     sourceModes: z.record(z.string(), z.object({
@@ -282,14 +284,22 @@ Returns the saved settings.`,
 
     const existing = await knex('customer_service_settings').where('organization_id', scope.organizationId).first()
 
-    // Normalize watchedConnectionIds to a string[] or null (null = all active).
-    let watched: string[] | null = existing?.watched_connection_ids ?? null
+    // The watched mailboxes as a list of connection ids. Empty = none (no
+    // email is drafted), never "every mailbox". Ids that are not this org's
+    // own mailboxes are dropped.
+    let watched: string[] = parseWatchedConnectionIds(existing?.watched_connection_ids)
     if (input.watchedConnectionIds !== undefined) {
-      if (Array.isArray(input.watchedConnectionIds)) {
-        const cleaned = input.watchedConnectionIds.filter((v: unknown) => typeof v === 'string' && v.length > 0)
-        watched = cleaned.length > 0 ? cleaned : null
+      const requested = parseWatchedConnectionIds(input.watchedConnectionIds)
+      if (requested.length === 0) {
+        watched = []
       } else {
-        watched = null
+        const owned = await knex('email_connections')
+          .where('organization_id', scope.organizationId)
+          .where('tenant_id', scope.tenantId)
+          .whereIn('id', requested)
+          .select('id')
+        const ownedIds = new Set(owned.map((c: { id: string }) => String(c.id)))
+        watched = requested.filter((id) => ownedIds.has(id))
       }
     }
 
@@ -308,16 +318,14 @@ Returns the saved settings.`,
 
     // Per-mailbox overrides: keep only entries for watched connections. Omitted
     // in input = keep existing (pruned to the current watched list).
-    let sourceModes: Record<string, { mode: string; threshold: number }>
-    if (input.sourceModes !== undefined) {
-      sourceModes = normalizeSourceModesInput(input.sourceModes, watched)
-    } else {
-      sourceModes = parseSourceModes(existing?.source_modes)
-      if (watched && watched.length > 0) {
-        const allowed = new Set(watched)
-        sourceModes = Object.fromEntries(Object.entries(sourceModes).filter(([k]) => allowed.has(k)))
-      }
-    }
+    // Changing the account-wide mode clears every override, as on the page.
+    const sourceModes: Record<string, { mode: string; threshold: number }> = sourceModesAfterSave({
+      previousMode: existing?.reply_mode,
+      nextMode: replyMode,
+      requested: input.sourceModes !== undefined ? (normalizeSourceModesInput(input.sourceModes, watched) as SourceModes) : undefined,
+      saved: parseSourceModes(existing?.source_modes) as SourceModes,
+      watched,
+    })
 
     // flag_scenarios: clamp/validate the client list onto the canonical default
     // keys/labels. Omitted = keep existing. parseFlagScenarios always returns the
@@ -332,7 +340,7 @@ Returns the saved settings.`,
 
     const fields = {
       enabled: typeof input.enabled === 'boolean' ? input.enabled : (existing?.enabled ?? false),
-      watched_connection_ids: watched ? JSON.stringify(watched) : null,
+      watched_connection_ids: JSON.stringify(watched),
       reply_mode: replyMode,
       hybrid_confidence_threshold: hybridConfidenceThreshold,
       source_modes: Object.keys(sourceModes).length > 0 ? JSON.stringify(sourceModes) : null,

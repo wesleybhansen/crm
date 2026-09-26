@@ -4,7 +4,7 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
-import { sendPlatformNotification } from '@/modules/email/lib/platform-sender'
+import { platformSenderAddress, sendPlatformNotification } from '@/modules/email/lib/platform-sender'
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -21,6 +21,8 @@ import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { isPlatformNotificationSender, resolveFlagAlertRecipient } from '@/modules/customers/lib/cs-mailboxes'
+import { decideStandardAutoSend } from '@/modules/customers/lib/cs-send-decision'
 
 // Recurring personal-Inbox drafting engine. Mirrors the Customer Service
 // processor (customer-service/process) but is scoped to inbound EMAIL + SMS in
@@ -186,6 +188,12 @@ export async function POST(req: Request) {
               skippedAutomated++
               continue
             }
+            // Noli's own notifications (flag alerts, digests) never get a reply.
+            if (isPlatformNotificationSender(inbound.from_address, platformSenderAddress())) {
+              await markDrafted(knex, conv.id, orgId, 'automated')
+              skippedAutomated++
+              continue
+            }
 
             // Resolve recipient + contact.
             const contact = await knex('customer_entities')
@@ -293,31 +301,21 @@ export async function POST(req: Request) {
             }
 
             // Decide whether to auto-send based on the org's reply mode.
-            //   draft  -> never auto-send (always hold).
-            //   auto   -> always auto-send.
+            //   draft  -> never auto-send (always hold), not even for a flag
+            //             scenario set to auto-send.
+            //   auto   -> auto-send parsed drafts.
             //   hybrid -> auto-send only when the drafter is confident AND
             //             flagged the reply auto-send-safe; otherwise hold.
-            let shouldAutoSend = false
-            if (mode === 'auto') {
-              // Never auto-send a draft whose envelope did not parse (confidence 0).
-              shouldAutoSend = result.confidence > 0
-            } else if (mode === 'hybrid') {
-              shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
-            }
-
-            // Flag override: pause wins over everything; all-auto_send forces send.
-            if (flagOutcome) {
-              shouldAutoSend = flagOutcome.shouldPause ? false : true
-            }
-
-            // Audience 'pause' (e.g. VIP contacts): always hold for review.
+            // Flag pause and a review-first audience always hold.
             const audiencePause = senderMatch.action === 'pause'
-            if (audiencePause) shouldAutoSend = false
-            // Audience 'auto_send': in hybrid mode, treat as auto-send-safe (skip the
-            // confidence gate). Never overrides a content pause; draft mode still holds.
-            if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) {
-              shouldAutoSend = true
-            }
+            const shouldAutoSend = decideStandardAutoSend({
+              mode,
+              confidence: result.confidence,
+              autoSendSafe: result.autoSendSafe === true,
+              threshold: hybridThreshold,
+              flag: flagOutcome,
+              audienceAction: senderMatch.action,
+            })
 
             const audienceReasons = audiencePause
               ? [{ key: 'audience_pause', label: 'Held for review: message from a review-first audience' }]
@@ -574,14 +572,15 @@ async function handleSmsConversation(
   if (flagOutcome?.noDraft) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
   const flagMeta = flagged ? { flagged: true, flagReasons: flagOutcome?.reasons || [] } : undefined
 
-  let shouldAutoSend = false
-  if (mode === 'auto') shouldAutoSend = true
-  else if (mode === 'hybrid') shouldAutoSend = result.autoSendSafe === true && result.confidence >= hybridThreshold
-  if (flagOutcome) shouldAutoSend = flagOutcome.shouldPause ? false : true
-  // Audience identity actions: 'pause' always holds; 'auto_send' relaxes the hybrid
-  // gate (never over a content pause; draft mode still holds).
-  if (senderMatch.action === 'pause') shouldAutoSend = false
-  if (senderMatch.action === 'auto_send' && mode === 'hybrid' && !flagOutcome?.shouldPause) shouldAutoSend = true
+  // Same rule as email: draft never sends, whatever a flag scenario says.
+  const shouldAutoSend = decideStandardAutoSend({
+    mode,
+    confidence: result.confidence,
+    autoSendSafe: result.autoSendSafe === true,
+    threshold: hybridThreshold,
+    flag: flagOutcome,
+    audienceAction: senderMatch.action,
+  })
 
   // Fire the flag alert once, regardless of which branch handles the draft.
   const fireAlert = async (paused: boolean) => {
@@ -705,8 +704,8 @@ function resolveFlagOutcome(matchedKeys: string[], scenarios: FlagScenario[]): {
 }
 
 // Email the org user a flag alert from the platform sender (never their own mailbox)
-// (same user-notification path the CS engine + AI digest cron use) and sends to
-// the org's primary active email connection address. Best-effort: never throws.
+// (same user-notification path the CS engine + AI digest cron use). The recipient
+// is never a mailbox Customer Service reads. Best-effort: never throws.
 async function sendFlagAlert(
   knex: any,
   orgId: string,
@@ -721,12 +720,13 @@ async function sendFlagAlert(
   },
 ) {
   try {
-    const recipient = await knex('email_connections')
-      .where('organization_id', orgId)
-      .where('is_active', true)
-      .orderBy('is_primary', 'desc')
-      .first()
-    if (!recipient?.email_address) return
+    // Never a mailbox Customer Service reads (the alert would be fetched back
+    // as a support ticket): a personal mailbox, else the owner's sign-in email.
+    const recipient = await resolveFlagAlertRecipient(knex, { orgId, tenantId })
+    if (!recipient) {
+      console.warn('[flag-alert] skipped: no recipient outside the monitored mailboxes', { orgId })
+      return
+    }
 
     const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const queueUrl = `${appUrl.replace(/\/$/, '')}/backend/customer-service/queue`
@@ -749,7 +749,7 @@ async function sendFlagAlert(
     `.trim()
 
     // From Noli to its user: the platform sender, never the user's own mailbox.
-    const sent = await sendPlatformNotification({ to: recipient.email_address, subject, htmlBody })
+    const sent = await sendPlatformNotification({ to: recipient, subject, htmlBody })
     if (!sent.ok) console.error('[flag-alert] not sent', { orgId, error: sent.error })
   } catch (err) {
     console.error('[inbox.process] flag alert email failed', { orgId, err })

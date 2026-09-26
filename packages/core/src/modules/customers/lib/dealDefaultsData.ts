@@ -12,12 +12,16 @@ export type DealDictionaryDefault = {
   icon?: string
 }
 
-/** Deal status dictionary (kind `deal_status`). Values are stored on deals, so they never change; labels may. */
+/**
+ * Deal status dictionary (kind `deal_status`). Values are stored on deals, so
+ * they do not change lightly; labels may. Lost was stored as 'loose' until
+ * 2026-09-29 (Migration20260929120000 renamed the entries and the deals).
+ */
 export const DEAL_STATUS_DEFAULTS: DealDictionaryDefault[] = [
   { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
   { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
   { value: 'win', label: 'Won', color: '#22c55e', icon: 'lucide:trophy' },
-  { value: 'loose', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
 ]
 
