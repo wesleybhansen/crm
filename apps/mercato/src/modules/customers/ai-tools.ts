@@ -24,6 +24,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { aiTools as coreCustomersTools } from '@open-mercato/core/modules/customers/ai-tools'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { parseWatchedConnectionIds } from '@/modules/customers/lib/cs-mailboxes'
+import { sourceModesAfterSave, type SourceModes } from '@/modules/customers/lib/cs-send-decision'
 
 type ToolContext = {
   tenantId: string | null
@@ -317,14 +318,14 @@ Returns the saved settings.`,
 
     // Per-mailbox overrides: keep only entries for watched connections. Omitted
     // in input = keep existing (pruned to the current watched list).
-    let sourceModes: Record<string, { mode: string; threshold: number }>
-    if (input.sourceModes !== undefined) {
-      sourceModes = normalizeSourceModesInput(input.sourceModes, watched)
-    } else {
-      sourceModes = parseSourceModes(existing?.source_modes)
-      const allowed = new Set(watched)
-      sourceModes = Object.fromEntries(Object.entries(sourceModes).filter(([k]) => allowed.has(k)))
-    }
+    // Changing the account-wide mode clears every override, as on the page.
+    const sourceModes: Record<string, { mode: string; threshold: number }> = sourceModesAfterSave({
+      previousMode: existing?.reply_mode,
+      nextMode: replyMode,
+      requested: input.sourceModes !== undefined ? (normalizeSourceModesInput(input.sourceModes, watched) as SourceModes) : undefined,
+      saved: parseSourceModes(existing?.source_modes) as SourceModes,
+      watched,
+    })
 
     // flag_scenarios: clamp/validate the client list onto the canonical default
     // keys/labels. Omitted = keep existing. parseFlagScenarios always returns the

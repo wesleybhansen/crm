@@ -36,6 +36,12 @@ type FlagScenario = { key: string; label: string; enabled: boolean; action: Flag
 type EmailConnection = { id: string; provider: string; email_address: string; is_primary: boolean; purpose?: string | null }
 type SourceMode = { mode: ReplyMode; threshold: number }
 type SourceModes = Record<string, SourceMode>
+const REPLY_MODE_LABELS: Record<ReplyMode, string> = {
+  draft: 'Draft for approval',
+  assisted: 'Answer routine requests',
+  auto: 'Auto-send',
+  hybrid: 'Hybrid',
+}
 type Settings = {
   enabled: boolean
   watchedConnectionIds: string[] | null
@@ -110,6 +116,11 @@ export default function CustomerServiceSettingsPage() {
   // The ticked mailboxes. Empty = none: no email is drafted until one is ticked.
   const [watchedIds, setWatchedIds] = useState<string[]>([])
   const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
+  // Per-mailbox reply-mode overrides (older setups, or set by the Chief of
+  // Staff). Shown so a mailbox that behaves differently is never a surprise;
+  // changing the mode above clears them (server side, cs-send-decision).
+  const [sourceModes, setSourceModes] = useState<SourceModes>({})
+  const [clearingOverrides, setClearingOverrides] = useState(false)
   const [hybridThreshold, setHybridThreshold] = useState(0.8)
   const [assisted, setAssisted] = useState<AssistedConfig>(DEFAULT_ASSISTED)
   const [assistedInquiryTypes, setAssistedInquiryTypes] = useState<AssistedInquiryOption[]>([])
@@ -417,6 +428,7 @@ export default function CustomerServiceSettingsPage() {
         const personal: EmailConnection[] = connRes?.ok ? (connRes.data || []).filter((c: EmailConnection) => c.purpose !== 'customer_service') : []
         if (personal.some(c => watched.includes(c.id))) setShowSharedMailboxes(true)
         setReplyMode(s.replyMode === 'auto' || s.replyMode === 'hybrid' || s.replyMode === 'assisted' ? s.replyMode : 'draft')
+        setSourceModes(s.sourceModes && typeof s.sourceModes === 'object' ? s.sourceModes : {})
         if (s.assisted) setAssisted(s.assisted)
         if (Array.isArray(s.assistedInquiryTypes)) setAssistedInquiryTypes(s.assistedInquiryTypes)
         if (typeof s.hybridConfidenceThreshold === 'number' && Number.isFinite(s.hybridConfidenceThreshold)) {
@@ -818,7 +830,29 @@ export default function CustomerServiceSettingsPage() {
       try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || timezone } catch {}
       setAssisted(prev => ({ ...prev, channels: { ...prev.channels, email: true }, sendWindow: { ...prev.sendWindow, timezone } }))
     }
+    // The save clears every per-mailbox override when the mode changes.
+    if (mode !== replyMode) setSourceModes({})
     setReplyMode(mode)
+  }
+
+  // "Use the mode above for every mailbox": drop the per-mailbox overrides now.
+  async function clearSourceModes() {
+    setClearingOverrides(true)
+    setError('')
+    try {
+      const res = await fetch('/api/customer-service/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sourceModes: {} }),
+      })
+      const data = await res.json().catch(() => null)
+      if (data?.ok) setSourceModes({})
+      else setError(data?.error || 'Could not clear the mailbox settings.')
+    } catch {
+      setError('Could not clear the mailbox settings.')
+    }
+    setClearingOverrides(false)
   }
 
   function toggleAssistedInquiry(key: string, on: boolean) {
@@ -935,6 +969,26 @@ export default function CustomerServiceSettingsPage() {
                 )
               })}
             </div>
+
+            {Object.keys(sourceModes).length > 0 && (
+              <div className="mt-3 rounded-lg border border-[rgba(217,119,6,.30)] bg-[rgba(217,119,6,.08)] px-4 py-3">
+                <p className="text-[12.5px] font-medium text-foreground">Some mailboxes use their own reply mode</p>
+                <ul className="mt-1 space-y-0.5">
+                  {Object.entries(sourceModes).map(([connectionId, override]) => {
+                    const conn = [...connections, ...csInboxes].find(c => c.id === connectionId)
+                    return (
+                      <li key={connectionId} className="text-xs text-muted-foreground break-words">
+                        <span className="text-foreground">{conn?.email_address || 'A mailbox that is no longer connected'}</span>: {REPLY_MODE_LABELS[override.mode] || override.mode}
+                      </li>
+                    )
+                  })}
+                </ul>
+                <p className="text-xs text-muted-foreground mt-1.5">These override the mode above for that mailbox. Choosing a different mode above clears them.</p>
+                <Button type="button" variant="outline" size="sm" className="mt-2" onClick={clearSourceModes} disabled={clearingOverrides}>
+                  {clearingOverrides ? 'Clearing...' : `Use ${REPLY_MODE_LABELS[replyMode]} for every mailbox`}
+                </Button>
+              </div>
+            )}
 
             {replyMode === 'assisted' && (
               <div id="assisted" className="mt-3 rounded-lg border divide-y">

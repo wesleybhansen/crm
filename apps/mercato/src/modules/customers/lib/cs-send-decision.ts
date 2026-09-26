@@ -91,3 +91,28 @@ export function scheduledSendStillAllowed(input: {
 }): boolean {
   return effectiveReplyMode(input.globalMode, input.sourceModes, input.sourceConnectionId ?? null) !== 'draft'
 }
+
+/**
+ * The per-mailbox reply-mode overrides to store after a settings save.
+ *
+ * Overrides are not shown as controls on the Customer Service page (it offers
+ * one account-wide mode), so an old override, say "auto" on one mailbox,
+ * could keep sending while the page shows Draft for approval. Rule:
+ *  - an explicit, already-validated `requested` map in the same save wins;
+ *  - otherwise, changing the account-wide mode clears every override (the
+ *    owner just chose one mode for everything);
+ *  - otherwise the saved overrides are kept, pruned to the watched mailboxes.
+ */
+export function sourceModesAfterSave(input: {
+  previousMode: unknown
+  nextMode: unknown
+  requested?: SourceModes
+  saved: SourceModes
+  watched: readonly string[]
+}): SourceModes {
+  if (input.requested !== undefined) return input.requested
+  const hadRow = typeof input.previousMode === 'string' && input.previousMode.length > 0
+  if (hadRow && input.previousMode !== input.nextMode) return {}
+  const allowed = new Set(input.watched)
+  return Object.fromEntries(Object.entries(input.saved).filter(([key]) => allowed.has(key)))
+}

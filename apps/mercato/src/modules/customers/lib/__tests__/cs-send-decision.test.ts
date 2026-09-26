@@ -3,6 +3,7 @@ import {
   effectiveReplyMode,
   parseSourceModes,
   scheduledSendStillAllowed,
+  sourceModesAfterSave,
   type StandardSendInput,
 } from '../cs-send-decision'
 
@@ -92,5 +93,27 @@ describe('the held-reply (scheduled send) job re-checks the mode', () => {
   it('parses stored overrides from a JSON string and drops invalid ones', () => {
     expect(parseSourceModes('{"a":{"mode":"hybrid","threshold":2},"b":{"mode":"nope"}}')).toEqual({ a: { mode: 'hybrid', threshold: 1 } })
     expect(parseSourceModes('not json')).toEqual({})
+  })
+})
+
+describe('sourceModesAfterSave (per-mailbox overrides)', () => {
+  const saved = { 'conn-a': { mode: 'auto' as const, threshold: 0.8 }, 'conn-b': { mode: 'hybrid' as const, threshold: 0.9 } }
+
+  it('clears every override when the owner changes the account-wide mode', () => {
+    expect(sourceModesAfterSave({ previousMode: 'auto', nextMode: 'draft', saved, watched: ['conn-a', 'conn-b'] })).toEqual({})
+  })
+
+  it('keeps the overrides (pruned to watched mailboxes) when the mode is unchanged', () => {
+    expect(sourceModesAfterSave({ previousMode: 'draft', nextMode: 'draft', saved, watched: ['conn-a'] })).toEqual({ 'conn-a': saved['conn-a'] })
+  })
+
+  it('an explicit request in the same save wins, including an empty map', () => {
+    expect(sourceModesAfterSave({ previousMode: 'draft', nextMode: 'draft', requested: {}, saved, watched: ['conn-a'] })).toEqual({})
+    const requested = { 'conn-a': { mode: 'hybrid' as const, threshold: 0.7 } }
+    expect(sourceModesAfterSave({ previousMode: 'draft', nextMode: 'auto', requested, saved, watched: ['conn-a'] })).toEqual(requested)
+  })
+
+  it('a first save (no saved row) keeps whatever was saved before, pruned', () => {
+    expect(sourceModesAfterSave({ previousMode: undefined, nextMode: 'auto', saved: {}, watched: [] })).toEqual({})
   })
 })

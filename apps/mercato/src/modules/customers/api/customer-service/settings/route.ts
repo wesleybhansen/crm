@@ -14,6 +14,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildDefaultSignature } from '@/modules/customers/lib/draft-reply'
 import { ASSISTED_INQUIRY_TYPES, DEFAULT_ASSISTED_CONFIG, normalizeAssistedConfig } from '@/modules/customers/lib/assisted-send'
 import { parseWatchedConnectionIds } from '@/modules/customers/lib/cs-mailboxes'
+import { sourceModesAfterSave, type SourceModes } from '@/modules/customers/lib/cs-send-decision'
 
 const VALID_MODES = new Set(['draft', 'auto', 'hybrid', 'assisted'])
 
@@ -265,15 +266,15 @@ export async function PUT(req: Request) {
     // source_modes: per-mailbox overrides keyed by connection id. Only keep
     // entries for connections in the (resolved) watched list and with a valid
     // mode/threshold. Omitted in the body = keep existing.
-    let sourceModes: Record<string, { mode: string; threshold: number }>
-    if (body.sourceModes !== undefined) {
-      sourceModes = normalizeSourceModesInput(body.sourceModes, watched)
-    } else {
-      sourceModes = parseSourceModes(existing?.source_modes)
-      // Drop overrides for any connection no longer watched.
-      const allowed = new Set(watched)
-      sourceModes = Object.fromEntries(Object.entries(sourceModes).filter(([k]) => allowed.has(k)))
-    }
+    // Changing the account-wide mode clears every override (lib/cs-send-decision
+    // sourceModesAfterSave), so a hidden per-mailbox "auto" cannot keep sending.
+    const sourceModes: Record<string, { mode: string; threshold: number }> = sourceModesAfterSave({
+      previousMode: existing?.reply_mode,
+      nextMode: replyMode,
+      requested: body.sourceModes !== undefined ? (normalizeSourceModesInput(body.sourceModes, watched) as SourceModes) : undefined,
+      saved: parseSourceModes(existing?.source_modes) as SourceModes,
+      watched,
+    })
 
     // Dedicated customer-service SMS number. Omitted in the body = keep existing;
     // empty string = clear. When set, it must be a number owned by the org's own

@@ -164,6 +164,12 @@ export async function POST(req: Request) {
       const now = new Date()
       const patch: Record<string, unknown> = { updated_at: now }
       if (replyMode !== undefined) patch.reply_mode = replyMode
+      // Desk only: changing the account-wide mode clears the per-mailbox
+      // overrides, as the CRM's own settings page does (a hidden "auto"
+      // override must not keep sending after the owner picked another mode).
+      if (source === 'customer_service' && replyMode !== undefined && existing && existing.reply_mode !== replyMode) {
+        patch.source_modes = null
+      }
       if (threshold !== undefined) patch.hybrid_confidence_threshold = threshold
       if (scenarios !== undefined) patch.flag_scenarios = JSON.stringify(scenarios)
       // enabled = the drafter's master switch (both settings tables have it).
