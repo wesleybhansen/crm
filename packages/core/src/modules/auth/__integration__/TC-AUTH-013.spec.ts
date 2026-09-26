@@ -26,9 +26,11 @@ test.describe('TC-AUTH-013: Configure Role ACL and Permissions', () => {
       roleId = page.url().match(/\/backend\/roles\/([0-9a-f-]{36})\/edit$/i)?.[1] ?? null;
 
       const featureCheckbox = page.getByRole('checkbox', { name: /view api keys \(api_keys\.view\)/i }).first();
-      if ((await featureCheckbox.count()) === 0 || !(await featureCheckbox.isVisible().catch(() => false))) {
-        test.skip(true, 'Target ACL checkbox is not visible for this role.');
-      }
+      // The ACL editor renders its checkboxes only after it has fetched the
+      // feature catalog and the role's ACL, so wait for the checkbox instead
+      // of sampling it once while the editor is still loading.
+      await expect(featureCheckbox).toBeVisible();
+      await expect(featureCheckbox).toBeEnabled();
       if (!(await featureCheckbox.isChecked())) {
         await featureCheckbox.check();
       }
