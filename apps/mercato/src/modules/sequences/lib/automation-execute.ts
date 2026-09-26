@@ -1,4 +1,4 @@
-import { applyTaskTemplate } from '../../customers/api/task-templates/apply/route'
+import { applyTaskTemplate } from '../../customers/lib/task-template-apply'
 import { sendEmailByPurpose } from '../../email/lib/email-router'
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import {
