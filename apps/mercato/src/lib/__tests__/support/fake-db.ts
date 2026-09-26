@@ -110,20 +110,32 @@ class Builder {
   whereIn(col: string, vals: any[]) { return this.add(false, (r) => vals.includes(this.get(r, col))) }
   whereNotIn(col: string, vals: any[]) { return this.add(false, (r) => !vals.includes(this.get(r, col))) }
   orWhereIn(col: string, vals: any[]) { return this.add(true, (r) => vals.includes(this.get(r, col))) }
-  whereRaw(sql: string, bindings: any[] = []) {
+  whereRaw(sql: string, bindings: any[] = []) { return this.add(false, this.rawPred(sql, bindings)) }
+  orWhereRaw(sql: string, bindings: any[] = []) { return this.add(true, this.rawPred(sql, bindings)) }
+  private rawPred(sql: string, bindings: any[]): Pred {
     const isNull = /^(\w+)->>'(\w+)' is null$/i.exec(sql.trim())
     if (isNull) {
       const [, col, key] = isNull
-      return this.add(false, (r) => parseJson(this.get(r, col!))?.[key!] == null)
+      return (r) => parseJson(this.get(r, col!))?.[key!] == null
+    }
+    // lower(col) in (?, ?, ...): case-insensitive address lists.
+    const lowerIn = /^lower\((\w+)\) in \((\?(?:, \?)*)\)$/i.exec(sql.trim())
+    if (lowerIn) {
+      const [, col] = lowerIn
+      const wanted = bindings.map((b) => String(b))
+      return (r) => {
+        const value = this.get(r, col!)
+        return typeof value === 'string' && wanted.includes(value.toLowerCase())
+      }
     }
     const m = /^(\w+)->>'(\w+)' = (\?|'[^']*')$/.exec(sql.trim())
     if (!m) throw new Error(`fake-db: unsupported whereRaw: ${sql}`)
     const [, col, key, rhs] = m
     const expected = rhs === '?' ? bindings[0] : rhs!.slice(1, -1)
-    return this.add(false, (r) => {
+    return (r) => {
       const value = parseJson(this.get(r, col!))?.[key!]
       return value != null && String(value) === String(expected)
-    })
+    }
   }
   join(table: string, left: string, right: string) {
     const [name, alias] = table.split(/\s+as\s+/i)

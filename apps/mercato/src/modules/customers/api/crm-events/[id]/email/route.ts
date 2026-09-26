@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmailByPurpose } from '@/modules/email/lib/email-router'
+import { UNSUBSCRIBED_CODE } from '@/modules/email/lib/unsubscribes'
 import { refusalIfNotConnected } from '../../../../../email/lib/sending-readiness'
 import { decryptAttendeesForSend } from '@/modules/customers/lib/event-attendees'
 
@@ -42,6 +43,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (refusal) return NextResponse.json(refusal, { status: 422 })
 
     let sent = 0
+    // Attendees who unsubscribed from this business's email: the router's
+    // unsubscribe gate refuses them, and the reply says how many.
+    let skippedUnsubscribed = 0
 
     for (const att of attendees) {
       const firstName = att.attendee_name.split(' ')[0]
@@ -58,6 +62,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           htmlBody: html,
           contactId: att.contact_id || undefined,
         })
+        if (!result.ok && result.code === UNSUBSCRIBED_CODE) skippedUnsubscribed++
         if (result.ok) {
           sent++
 
@@ -80,7 +85,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
     }
 
-    return NextResponse.json({ ok: true, data: { sent, total: attendees.length } })
+    return NextResponse.json({ ok: true, data: { sent, total: attendees.length, skippedUnsubscribed } })
   } catch (error: any) {
     console.error('[crm-events.email]', error?.message)
     return NextResponse.json({ ok: false, error: 'Failed to send emails' }, { status: 500 })

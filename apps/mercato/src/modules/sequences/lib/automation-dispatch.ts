@@ -4,8 +4,8 @@ import { decryptRowFields, DEAL_ENTITY_KEY } from '@open-mercato/shared/lib/encr
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import { UNDECRYPTABLE_DISPLAY_TEXT } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { executeAutomationRules } from './automation-execute'
-import { checkSequenceTriggers } from '../services/sequence-triggers'
-import { isContactUnsubscribed } from '../../email/lib/unsubscribes'
+import { checkSequenceTriggers, type SequenceTriggerOutcome } from '../services/sequence-triggers'
+import { UNSUBSCRIBED_CODE } from '../../email/lib/unsubscribes'
 
 /*
  * Runs automation rules (automation_rules) and trigger-based sequences for the
@@ -21,7 +21,8 @@ import { isContactUnsubscribed } from '../../email/lib/unsubscribes'
  * purchased" run too (dispatchEventRegistered, dispatchProductPurchased):
  * the event registration routes and the purchase paths call them once per
  * real registration or purchase, and neither enrolls a contact who has
- * unsubscribed from the business's email.
+ * unsubscribed from the business's email. Every other trigger is gated the
+ * same way inside checkSequenceTriggers (lib/enrollment-gate.ts).
  *
  * Once per event: every dispatch first claims its event key in
  * automation_trigger_dispatches (unique per org + trigger + key). A replayed
@@ -71,7 +72,10 @@ export type AutomationDispatchInput = {
     courseId?: string | null
     eventId?: string | null
     productId?: string | null
-    /** Enroll no contact in email_unsubscribes for this organization. */
+    /**
+     * Kept for callers from #273. Every trigger now skips a contact in
+     * email_unsubscribes (inside checkSequenceTriggers), flag or not.
+     */
     skipUnsubscribed?: boolean
     /** Addresses the event carried (the registration or checkout email), checked with the contact's own. */
     emails?: Array<string | null | undefined>
@@ -86,6 +90,7 @@ type SequenceContext = {
   courseId?: string
   eventId?: string
   productId?: string
+  emails?: Array<string | null | undefined>
 }
 
 export type AutomationDispatchDeps = {
@@ -159,13 +164,10 @@ export async function dispatchAutomationTrigger(
   const contactId = typeof input.context.contactId === 'string' && input.context.contactId ? input.context.contactId : null
   if (input.sequenceTrigger && contactId) {
     const { stage, bookingPageId, source, courseId, eventId, productId } = input.sequenceTrigger
-    if (input.sequenceTrigger.skipUnsubscribed) {
-      const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
-      if (await isContactUnsubscribed(knex, scope, contactId, input.sequenceTrigger.emails ?? [])) {
-        return { dispatched: true, sequencesSkipped: 'unsubscribed' }
-      }
-    }
-    await checkSequences(knex, input.organizationId, input.tenantId, input.sequenceTrigger.type, {
+    // checkSequenceTriggers never enrolls an unsubscribed contact (for every
+    // trigger) and notes each skip on the contact's timeline; the addresses
+    // this event carried are checked with the contact's own.
+    const outcome = await checkSequences(knex, input.organizationId, input.tenantId, input.sequenceTrigger.type, {
       contactId,
       ...(stage ? { stage } : {}),
       ...(bookingPageId ? { bookingPageId } : {}),
@@ -173,9 +175,18 @@ export async function dispatchAutomationTrigger(
       ...(courseId ? { courseId } : {}),
       ...(eventId ? { eventId } : {}),
       ...(productId ? { productId } : {}),
+      ...(input.sequenceTrigger.emails?.length ? { emails: input.sequenceTrigger.emails } : {}),
     })
+    if (skippedAsUnsubscribed(outcome)) return { dispatched: true, sequencesSkipped: 'unsubscribed' }
   }
   return { dispatched: true }
+}
+
+/** True when the sequences that matched were all skipped because the contact unsubscribed. */
+function skippedAsUnsubscribed(outcome: unknown): boolean {
+  const o = outcome as Partial<SequenceTriggerOutcome> | null | undefined
+  if (!o || !Array.isArray(o.skipped) || !Array.isArray(o.enrolled)) return false
+  return o.enrolled.length === 0 && o.skipped.length > 0 && o.skipped.every((s) => s.code === UNSUBSCRIBED_CODE)
 }
 
 /**

@@ -5,6 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sendEmailByPurpose } from '../../../email/lib/email-router'
 import { hasSendingSetup } from '../../../email/lib/routing-service'
+import { isRecipientUnsubscribed } from '../../../email/lib/unsubscribes'
 import { runSequenceEmailStep } from '../../lib/email-step'
 import { runSequenceSmsStep } from '../../lib/sms-step'
 import { requireProcessAuth } from '@/lib/cron-auth'
@@ -94,6 +95,8 @@ export async function POST(req: Request) {
 
         const contact = await knex('customer_entities')
           .where('id', execution.contact_id)
+          .where('organization_id', execution.organization_id)
+          .where('tenant_id', execution.tenant_id)
           .first()
 
         // Same reason: without this the sequence email is sent to ciphertext and
@@ -203,16 +206,24 @@ export async function POST(req: Request) {
 
           const outcome = await runSequenceEmailStep(knex, {
             executionId: execution.execution_id,
+            enrollmentId: execution.enrollment_id,
             organizationId: execution.organization_id,
             tenantId: execution.tenant_id,
             contactId: execution.contact_id,
             to: email,
             subject,
             bodyHtml,
-          }, { hasSendingSetup, send: sendEmailByPurpose })
+          }, { isUnsubscribed: isRecipientUnsubscribed, hasSendingSetup, send: sendEmailByPurpose })
           // No sending setup: the step stays scheduled with a visible waiting
           // reason and the enrollment does not advance (lib/email-step.ts).
           if (outcome === 'waiting') continue
+          // The person unsubscribed from this business's email: nothing was
+          // sent, the step carries the reason, and the step already stopped
+          // the enrollment ('unsubscribed'). Never retried, never advanced.
+          if (outcome === 'unsubscribed') {
+            processed++
+            continue
+          }
           // A failed send stops this enrollment where it is. It used to
           // advance, so one dead token marched a contact through every
           // remaining step and reported the sequence 'completed' without a

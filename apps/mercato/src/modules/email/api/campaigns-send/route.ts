@@ -12,6 +12,7 @@ import {
   resolveSenderAddress,
 } from '../../lib/routing-service'
 import { signEmailToken } from '@/lib/email-token'
+import { UNSUBSCRIBED_CODE } from '../../lib/unsubscribes'
 import {
   decryptRowFields,
   CONTACT_ENTITY_KEY,
@@ -84,12 +85,17 @@ export async function POST(req: Request) {
     // The suppression list must never be silently empty: a failed read here
     // used to fall through to an empty Set and mail every contact who had
     // unsubscribed. Abort the send instead; the claim is released below.
+    // Matched by address (lowercased) or by contact id, this organization and
+    // tenant only: the same rule as the send-time gate in the email router.
     let unsubEmails = new Set<string>()
+    let unsubContactIds = new Set<string>()
     try {
       const unsubscribed = await knex('email_unsubscribes')
         .where('organization_id', auth.orgId)
-        .select('email')
-      unsubEmails = new Set(unsubscribed.map((u: any) => u.email?.toLowerCase()).filter(Boolean))
+        .where('tenant_id', tenantId)
+        .select('email', 'contact_id')
+      unsubEmails = new Set(unsubscribed.map((u: any) => (typeof u.email === 'string' ? u.email.trim().toLowerCase() : '')).filter(Boolean))
+      unsubContactIds = new Set(unsubscribed.map((u: any) => u.contact_id).filter(Boolean).map(String))
     } catch (err) {
       console.error('[campaign] unsubscribe list unavailable; refusing to send', err)
       await knex('email_campaigns').where('id', blastId).update({ status: 'draft' }).catch(() => {})
@@ -114,9 +120,10 @@ export async function POST(req: Request) {
     let recipients = contacts.filter((c: any) => {
       const email = c.primary_email?.trim()
       if (!email || !email.includes('@')) return false
+      if (unsubContactIds.has(String(c.id))) return false
       if (unsubEmails.has(email.toLowerCase())) return false
       const stored = storedEmailById.get(String(c.id))
-      if (stored && unsubEmails.has(stored.toLowerCase())) return false
+      if (stored && unsubEmails.has(stored.trim().toLowerCase())) return false
       return true
     })
 
@@ -253,6 +260,14 @@ export async function POST(req: Request) {
               })
             } catch {}
           }
+        } else if (result.code === UNSUBSCRIBED_CODE) {
+          // Unsubscribed after the audience was read: the router's gate
+          // refused it. Not a failure; nothing was sent.
+          await knex('email_campaign_recipients')
+            .where('campaign_id', blastId).where('contact_id', contact.id)
+            .where('organization_id', auth.orgId)
+            .update({ status: 'unsubscribed' })
+            .catch(() => {})
         } else {
           failedCount++
           console.error(`[campaign] Failed to send to ${toEmail}:`, result.error)

@@ -19,7 +19,17 @@ import {
 } from './routing-service'
 
 import { EMAIL_NOT_SENT_NOT_CONNECTED } from './sending-readiness'
+import {
+  isRecipientUnsubscribed,
+  isUnsubscribeGatedPurpose,
+  UNSUBSCRIBED_CODE,
+  UNSUBSCRIBED_SEND_REASON,
+} from './unsubscribes'
 import { logTimelineEvent } from '../../../lib/timeline'
+
+export const UNSUBSCRIBE_CHECK_FAILED_CODE = 'unsubscribe_check_failed'
+const UNSUBSCRIBE_CHECK_FAILED_MESSAGE =
+  'Not sent: the unsubscribe list could not be checked. Nothing goes out until it can be.'
 
 interface SendEmailParams {
   to: string
@@ -426,6 +436,38 @@ export async function sendEmailByPurpose(
   }
 
   const { to, cc, bcc, subject, htmlBody, textBody, contactId } = params
+
+  // The unsubscribe gate (2026-09-26): a marketing or automation email never
+  // reaches a person who unsubscribed from this business (email_unsubscribes,
+  // by contact or address, this organization and tenant only). Transactional
+  // purposes are not checked. If the list cannot be read, nothing is sent.
+  if (isUnsubscribeGatedPurpose(purpose)) {
+    let unsubscribed: boolean
+    try {
+      unsubscribed = await isRecipientUnsubscribed(knex, { organizationId: orgId, tenantId }, {
+        contactId: contactId ?? null,
+        emails: [to],
+      })
+    } catch (err) {
+      console.error('[email-router] unsubscribe list unavailable; refusing a marketing send', { orgId, purpose, error: err instanceof Error ? err.message : String(err) })
+      return { ok: false, code: UNSUBSCRIBE_CHECK_FAILED_CODE, error: UNSUBSCRIBE_CHECK_FAILED_MESSAGE }
+    }
+    if (unsubscribed) {
+      if (contactId) {
+        await logTimelineEvent(knex, {
+          tenantId,
+          organizationId: orgId,
+          contactId,
+          eventType: 'email_not_sent',
+          title: `Email not sent: ${subject || '(no subject)'}`,
+          description: UNSUBSCRIBED_SEND_REASON,
+          metadata: { purpose, reason: UNSUBSCRIBED_CODE },
+        }).catch(() => {})
+      }
+      return { ok: false, code: UNSUBSCRIBED_CODE, error: UNSUBSCRIBED_SEND_REASON }
+    }
+  }
+
   const displayName = resolved.fromName || params.fromName || null
   const fromDisplay = displayName
     ? `${displayName} <${resolved.fromAddress}>`

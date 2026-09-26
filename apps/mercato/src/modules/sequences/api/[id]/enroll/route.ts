@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enrollmentBlockedReason } from '../../../lib/enrollment'
+import { unsubscribedEnrollmentRefusal } from '../../../lib/enrollment-gate'
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromCookies()
@@ -23,6 +24,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const sequence = await knex('sequences')
       .where('id', params.id)
       .where('organization_id', auth.orgId)
+      .where('tenant_id', auth.tenantId)
       .whereNull('deleted_at')
       .first()
 
@@ -35,13 +37,22 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const contact = await knex('customer_entities')
       .where('id', contactId)
       .where('organization_id', auth.orgId)
-      .first()
+      .where('tenant_id', auth.tenantId)
+      .first('id')
 
     if (!contact) return NextResponse.json({ ok: false, error: 'Contact not found' }, { status: 404 })
+
+    // Unsubscribed from this business's email: never enrolled (the page counts
+    // these as "skipped because they unsubscribed").
+    const refusal = await unsubscribedEnrollmentRefusal(knex, { organizationId: auth.orgId, tenantId: auth.tenantId }, contactId)
+    if (refusal) {
+      return NextResponse.json({ ok: false, code: refusal.code, error: refusal.reason }, { status: 409 })
+    }
 
     const existingEnrollment = await knex('sequence_enrollments')
       .where('sequence_id', params.id)
       .where('contact_id', contactId)
+      .where('organization_id', auth.orgId)
       .whereIn('status', ['active'])
       .first()
 

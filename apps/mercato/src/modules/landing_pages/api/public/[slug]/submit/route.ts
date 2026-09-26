@@ -228,7 +228,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
         if (contactId) {
           trackEngagement(knex, page.organization_id, page.tenant_id, contactId, 'form_submitted', undefined, container).catch(() => {})
           checkSequenceTriggers(knex, page.organization_id, page.tenant_id, 'form_submit', {
-            contactId, formId: form.id,
+            contactId, formId: form.id, emails: [typeof email === 'string' ? email : null],
           }).catch(() => {})
         }
 

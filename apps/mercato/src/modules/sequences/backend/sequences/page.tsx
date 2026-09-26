@@ -11,7 +11,7 @@ import {
   Filter, MessageSquare, Users, ChevronDown, ChevronRight, Sparkles, UserPlus,
   BookOpen, Download, Tag, Zap, Target,
 } from 'lucide-react'
-import { enrollmentBlockedReason, noEmailBannerText, summarizeEnrollResults } from '../../lib/enrollment'
+import { enrollmentBlockedReason, noEmailBannerText, summarizeEnrollResults, type EnrollAttempt } from '../../lib/enrollment'
 
 type Recipe = {
   id: string; name: string; description: string; category: string
@@ -116,6 +116,7 @@ const statusVariant: Record<string, 'violet' | 'blue' | 'green' | 'amber' | 'red
   scheduled: 'blue',
   failed: 'red',
   bounced: 'red',
+  unsubscribed: 'secondary',
 }
 
 // House palette for tinted-icon stat tiles + count badges (matches the CRM dashboard).
@@ -343,7 +344,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
     const ids = Array.from(enrollSelectedIds)
     if (ids.length === 0 || !selectedId) return
     setEnrolling(true)
-    const results: Array<{ ok: boolean; error?: string | null }> = []
+    const results: EnrollAttempt[] = []
     for (const contactId of ids) {
       try {
         const res = await fetch(`/api/sequences/${selectedId}/enroll`, {
@@ -351,7 +352,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
           body: JSON.stringify({ contactId }),
         })
         const data = await res.json().catch(() => null)
-        results.push({ ok: !!data?.ok, error: data?.error ?? null })
+        results.push({ ok: !!data?.ok, code: data?.code ?? null, error: data?.error ?? null })
       } catch {
         results.push({ ok: false, error: 'Network error. Check your connection and try again.' })
       }
