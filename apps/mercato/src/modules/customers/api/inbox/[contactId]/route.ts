@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
+import { findSmsOptOut, smsOptedOutReason, smsOptOutJson } from '@/modules/customers/lib/sms-opt-outs'
 
 export async function GET(
   _req: Request,
@@ -139,10 +140,23 @@ export async function GET(
       })),
     ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
+    // Opted out of the business's texts (replied STOP)? Checked on the
+    // contact's number and the conversation's number. The thread shows it and
+    // SMS is not offered as a reply channel.
+    const optOut = await findSmsOptOut(
+      knex,
+      { organizationId: auth.orgId, tenantId: auth.tenantId },
+      [contact?.phone, inboxConv.avatar_phone],
+    ).catch((err: unknown) => {
+      // Display only: every send path checks the list itself and refuses.
+      console.error('[inbox.detail] opt-out list unavailable', err instanceof Error ? err.message : err)
+      return null
+    })
+
     // Determine available channels
     const availableChannels = {
       email: !!(contact?.email),
-      sms: !!(contact?.phone),
+      sms: !!(contact?.phone) && !optOut,
       chat: !!inboxConv.chat_conversation_id,
     }
 
@@ -153,6 +167,9 @@ export async function GET(
         contact,
         chatConversationId: inboxConv.chat_conversation_id,
         availableChannels,
+        // { optedOutAt, source, keyword } when they opted out of texts, else null.
+        smsOptOut: smsOptOutJson(optOut),
+        smsBlockedReason: optOut ? smsOptedOutReason(optOut) : null,
         status: inboxConv.status,
         messages,
       },

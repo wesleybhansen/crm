@@ -9,6 +9,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findSmsOptOutsByNumber, normalizeSmsNumber } from '@/modules/customers/lib/sms-opt-outs'
 
 // GET: list pending customer-service draft proposals for the org.
 // Each item carries the linked contact summary + the drafted reply body so the
@@ -133,6 +134,17 @@ export async function GET(req: Request) {
       }
     }
 
+    // SMS drafts whose number opted out of the business's texts (replied
+    // STOP): the queue says so and the reply cannot be sent.
+    const smsOptOuts = await findSmsOptOutsByNumber(
+      knex,
+      { organizationId: auth.orgId, tenantId: auth.tenantId },
+      parsed.filter((p) => p.channel === 'sms').map((p) => p.payload?.to),
+    ).catch((err: unknown) => {
+      console.error('[customer-service.queue] opt-out list unavailable', err instanceof Error ? err.message : err)
+      return new Map()
+    })
+
     const data = parsed.map(({ row, payload, participants, channel, flagged, flagReasons, assistedHoldReasons }) => {
       const first = Array.isArray(participants) ? participants[0] : null
       const contactId = payload?.contactId || null
@@ -166,6 +178,10 @@ export async function GET(req: Request) {
               : null),
         subject: (isSms || isChat) ? null : (payload?.subject || null),
         body: payload?.body || null,
+        // ISO date the person opted out of texts, or null (SMS drafts only).
+        smsOptedOutAt: isSms
+          ? (smsOptOuts.get(normalizeSmsNumber(payload?.to) || '')?.optedOutAt.toISOString() ?? null)
+          : null,
       }
     })
 

@@ -1,5 +1,6 @@
 import type { Knex } from 'knex'
 import { sendAutomationSms, type AutomationSmsResult } from './automation-sms'
+import { SMS_OPTED_OUT_STOP_REASON } from '../../customers/lib/sms-opt-outs'
 
 /**
  * One sequence "Send SMS" step, as run by the sequence processor. It used to
@@ -15,14 +16,26 @@ import { sendAutomationSms, type AutomationSmsResult } from './automation-sms'
  * - failed  -> Twilio refused or could not be reached: the step is 'failed'
  *   with the error, and the processor stops the enrollment where it is, the
  *   same as a failed email step.
+ * - opted_out -> (2026-09-26) the person replied STOP to the business's
+ *   number, or Twilio refused with 21610 (sms_opt_outs, this organization
+ *   and tenant). Nothing is sent; the step is 'skipped' with the reason and
+ *   the enrollment is stopped ('opted_out'): never retried, never advanced.
+ * - waiting -> the opt-out list could not be read: nothing is sent and the
+ *   step goes back to 'scheduled' a little later, like a waiting email step.
  *
  * Relative imports only: keep this file safe for worker bundling.
  */
 
-export type SequenceSmsStepOutcome = 'sent' | 'skipped' | 'failed'
+export type SequenceSmsStepOutcome = 'sent' | 'skipped' | 'failed' | 'opted_out' | 'waiting'
+
+/** How long a text step waits when the opt-out list could not be read. */
+export const SEQUENCE_SMS_WAIT_RETRY_MS = 15 * 60 * 1000
+export const SEQUENCE_SMS_OPT_OUT_CHECK_WAITING_CODE = 'sms_opt_out_check_failed'
 
 export type SequenceSmsStepInput = {
   executionId: string
+  /** The enrollment this step belongs to: stopped when the person opted out. */
+  enrollmentId?: string | null
   organizationId: string
   tenantId: string
   contactId: string
@@ -51,6 +64,31 @@ export async function runSequenceSmsStep(
     result = { success: false, detail: `SMS failed: ${err instanceof Error ? err.message : 'unknown error'}` }
   }
 
+  if (result.optedOut) {
+    await knex('sequence_step_executions').where('id', input.executionId).update({
+      status: 'skipped',
+      result: JSON.stringify({ skipped: true, sms_opted_out: true, reason: SMS_OPTED_OUT_STOP_REASON, detail: result.detail }),
+      executed_at: now,
+    })
+    if (input.enrollmentId) {
+      await knex('sequence_enrollments')
+        .where('id', input.enrollmentId)
+        .where('organization_id', input.organizationId)
+        .where('tenant_id', input.tenantId)
+        .where('status', 'active')
+        .update({ status: 'opted_out', paused_at: now })
+    }
+    return 'opted_out'
+  }
+  if (result.checkFailed) {
+    // Back to 'scheduled' (it was claimed as 'processing'), a little later.
+    await knex('sequence_step_executions').where('id', input.executionId).update({
+      status: 'scheduled',
+      scheduled_for: new Date(now.getTime() + SEQUENCE_SMS_WAIT_RETRY_MS),
+      result: JSON.stringify({ waiting: SEQUENCE_SMS_OPT_OUT_CHECK_WAITING_CODE, reason: result.detail }),
+    })
+    return 'waiting'
+  }
   if (result.success) {
     await knex('sequence_step_executions').where('id', input.executionId).update({
       status: 'executed',

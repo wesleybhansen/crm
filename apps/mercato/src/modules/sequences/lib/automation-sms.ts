@@ -4,6 +4,14 @@ import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/e
 import { isEncryptedEnvelope } from '@open-mercato/shared/lib/encryption/envelopeFormat'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { buildSenderContext, recordReviewRequest, requiresReviewUrl, substituteTemplateVars } from './template-vars'
+import {
+  SMS_OPT_OUT_CHECK_FAILED_REASON,
+  findSmsOptOut,
+  isTwilioUnsubscribedError,
+  recordSmsOptOut,
+  smsOptedOutReason,
+  type SmsOptOut,
+} from '../../customers/lib/sms-opt-outs'
 
 /*
  * The "Send SMS" automation action, and the sequence "Send SMS" step
@@ -13,10 +21,25 @@ import { buildSenderContext, recordReviewRequest, requiresReviewUrl, substituteT
  * number), never a Noli number. Without a connected Twilio account the action
  * is SKIPPED with a reason the owner sees in the rule's run history.
  *
+ * Opt-outs (2026-09-26): a person who replied STOP to the business's number
+ * (sms_opt_outs, this organization and tenant, by number) is never texted.
+ * The send is refused before anything is written, with a plain reason
+ * (optedOut), and never retried. Twilio's error 21610 ("unsubscribed
+ * recipient") is recorded as an opt-out and answered the same way. If the
+ * opt-out list cannot be read, nothing is sent (checkFailed).
+ *
  * Relative imports only: automation actions run from worker-bundled subscribers.
  */
 
-export type AutomationSmsResult = { success: boolean; skipped?: boolean; detail: string }
+export type AutomationSmsResult = {
+  success: boolean
+  skipped?: boolean
+  /** Refused: the person opted out of this business's texts. Never retried. */
+  optedOut?: boolean
+  /** Not sent: the opt-out list could not be read. Safe to try again later. */
+  checkFailed?: boolean
+  detail: string
+}
 
 export type AutomationSmsFetch = (
   url: string,
@@ -72,6 +95,16 @@ export async function sendAutomationSms(
   const to = normalizePhone(contact?.primary_phone)
   if (!to) return { success: false, skipped: true, detail: 'Skipped: the contact has no mobile number on file.' }
 
+  // Opted out of this business's texts: refused before anything is written.
+  let optOut: SmsOptOut | null
+  try {
+    optOut = await findSmsOptOut(knex, scope, [to])
+  } catch (err) {
+    console.error('[automation-sms] opt-out list unavailable; not sending', err instanceof Error ? err.message : err)
+    return { success: false, checkFailed: true, detail: SMS_OPT_OUT_CHECK_FAILED_REASON }
+  }
+  if (optOut) return { success: false, skipped: true, optedOut: true, detail: smsOptedOutReason(optOut) }
+
   const sender = await buildSenderContext(knex, scope.organizationId)
   const isReviewRequest = requiresReviewUrl(template)
   if (isReviewRequest && !sender.review_url) {
@@ -92,6 +125,7 @@ export async function sendAutomationSms(
   const fetchImpl = deps.fetchImpl ?? ((url, init) => fetch(url, init))
   let twilioSid: string | null = null
   let errorMessage: string | null = null
+  let carrierUnsubscribed = false
   try {
     const res = await fetchImpl(`https://api.twilio.com/2010-04-01/Accounts/${connection.account_sid}/Messages.json`, {
       method: 'POST',
@@ -101,9 +135,12 @@ export async function sendAutomationSms(
       },
       body: new URLSearchParams({ To: to, From: fromNumber, Body: body }),
     })
-    const data = (await res.json().catch(() => ({}))) as { sid?: string; message?: string }
+    const data = (await res.json().catch(() => ({}))) as { sid?: string; message?: string; code?: number }
     if (data?.sid) twilioSid = data.sid
-    else errorMessage = data?.message || 'Twilio rejected the message'
+    else {
+      errorMessage = data?.message || 'Twilio rejected the message'
+      carrierUnsubscribed = isTwilioUnsubscribedError(data)
+    }
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : 'Failed to reach Twilio'
   }
@@ -123,6 +160,18 @@ export async function sendAutomationSms(
     created_at: now,
   }).catch((err: unknown) => console.error('[automation-sms] could not record the message', err))
 
+  if (carrierUnsubscribed) {
+    // Twilio 21610: the number unsubscribed from this sender. Record it so no
+    // later send is attempted, and report it as an opt-out, not a failure.
+    await recordSmsOptOut(knex, scope, { phone: to, contactId: input.contactId, source: 'carrier', at: now })
+      .catch((err: unknown) => console.error('[automation-sms] could not record the opt-out', err instanceof Error ? err.message : err))
+    return {
+      success: false,
+      skipped: true,
+      optedOut: true,
+      detail: smsOptedOutReason({ optedOutAt: now, source: 'carrier', keyword: null }),
+    }
+  }
   if (!twilioSid) return { success: false, detail: `SMS failed: ${errorMessage}` }
 
   try {

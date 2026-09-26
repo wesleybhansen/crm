@@ -117,6 +117,12 @@ const statusVariant: Record<string, 'violet' | 'blue' | 'green' | 'amber' | 'red
   failed: 'red',
   bounced: 'red',
   unsubscribed: 'secondary',
+  opted_out: 'secondary',
+}
+
+// Enrollment statuses shown in words where the stored value is not one.
+const statusLabel: Record<string, string> = {
+  opted_out: 'opted out of texts',
 }
 
 // House palette for tinted-icon stat tiles + count badges (matches the CRM dashboard).
@@ -1099,7 +1105,7 @@ export default function SequencesPage({ embedded }: { embedded?: boolean } = {})
                       {enr.waiting_reason || enr.skipped_reason}
                     </p>
                   )}
-                  <Badge variant={statusVariant[enr.status] || 'secondary'}>{enr.status}</Badge>
+                  <Badge variant={statusVariant[enr.status] || 'secondary'}>{statusLabel[enr.status] || enr.status}</Badge>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     Step {enr.current_step_order}
                   </span>

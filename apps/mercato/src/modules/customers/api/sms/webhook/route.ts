@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { openSecretForTenant } from '@open-mercato/shared/lib/encryption/secretColumns'
 import { findContactByPhone } from '@/modules/customers/lib/dedup'
+import { classifySmsKeyword, clearSmsOptOut, recordSmsOptOut } from '@/modules/customers/lib/sms-opt-outs'
 
 export const metadata = { path: '/sms/webhook', POST: { requireAuth: false } }
 
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
     const signature = req.headers.get('x-twilio-signature')
     const webhookAuthToken = await openSecretForTenant(null, twilioConnection?.tenant_id, twilioConnection?.auth_token)
     if (!webhookAuthToken || !validTwilioSignature(webhookAuthToken, candidateUrls, params, signature)) {
-      console.warn('[sms.webhook] rejected: missing connection or invalid Twilio signature', { to })
+      console.warn('[sms.webhook] rejected: missing connection or invalid Twilio signature', { connection: !!twilioConnection })
       return new NextResponse('<Response></Response>', { status: 403, headers: { 'Content-Type': 'text/xml' } })
     }
 
@@ -94,6 +95,38 @@ export async function POST(req: Request) {
     const contact = found.existing
       ? { ...found.existing, tenant_id: tenantId, organization_id: orgId }
       : null
+
+    // Opt-out / opt-in (STOP, START, ...; Twilio's OptOutType when present),
+    // recorded for THIS business and number before anything else, so a
+    // Twilio retry of a message we already stored still leaves it recorded.
+    // A failure here is a 500, never a silent 200: an opt-out must not be lost.
+    const keyword = classifySmsKeyword(body, params['OptOutType'])
+    let consentChanged = false
+    if (keyword && orgId && tenantId) {
+      try {
+        consentChanged = keyword.kind === 'opt_out'
+          ? await recordSmsOptOut(knex, { organizationId: orgId, tenantId }, {
+              phone: from, contactId: contact?.id || null, source: 'reply', keyword: keyword.keyword,
+            })
+          : await clearSmsOptOut(knex, { organizationId: orgId, tenantId }, { phone: from })
+      } catch (err) {
+        console.error('[sms.webhook] could not record the text opt-out/opt-in', err instanceof Error ? err.message : err)
+        return new NextResponse('<Response></Response>', { status: 500, headers: { 'Content-Type': 'text/xml' } })
+      }
+      if (consentChanged && contact?.id) {
+        const { logTimelineEvent } = await import('@/lib/timeline')
+        await logTimelineEvent(knex, {
+          tenantId,
+          organizationId: orgId,
+          contactId: contact.id,
+          eventType: keyword.kind === 'opt_out' ? 'sms_opted_out' : 'sms_opted_in',
+          title: keyword.kind === 'opt_out'
+            ? `Opted out of your texts (replied ${keyword.keyword})`
+            : `Opted back in to your texts (replied ${keyword.keyword})`,
+          metadata: { source: 'sms_reply' },
+        })
+      }
+    }
 
     // Idempotency: Twilio retries inbound webhooks on timeout/5xx. Skip if we
     // already stored this MessageSid so a retry doesn't duplicate the message
@@ -126,8 +159,10 @@ export async function POST(req: Request) {
     // The number is read from the org's own settings row (server-side), never
     // from client input. We compare on a normalized form so formatting differences
     // (e.g. spaces) between Twilio's "To" and the stored value don't break the match.
+    // A STOP is a consent change, not a support request: it never goes to the
+    // Customer Service drafter (nothing may be sent back to them anyway).
     let isCustomerServiceSms = false
-    if (orgId) {
+    if (orgId && keyword?.kind !== 'opt_out') {
       try {
         const csSettings = await knex('customer_service_settings')
           .where('organization_id', orgId)
@@ -170,7 +205,8 @@ export async function POST(req: Request) {
       }
     }
 
-    console.log(`[sms.webhook] Received from ${from} to ${to} (org: ${orgId || 'unknown'}, cs: ${isCustomerServiceSms}): ${body}`)
+    // No phone numbers or message text in the logs.
+    console.log('[sms.webhook] received', { org: orgId || 'unknown', cs: isCustomerServiceSms, consent: keyword?.kind ?? null, changed: consentChanged })
 
     return new NextResponse('<Response></Response>', { headers: { 'Content-Type': 'text/xml' } })
   } catch (error) {

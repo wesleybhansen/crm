@@ -18,6 +18,7 @@ import { loadAudiences, resolveSenderAudiences, scenarioAudienceMatches } from '
 import type { Audience } from '@/modules/customers/lib/audiences'
 import { sendReply } from '@/modules/customers/lib/send-reply'
 import { sendSmsReply } from '@/modules/customers/lib/send-sms-reply'
+import { SMS_OPTED_OUT_CODE, findSmsOptOut } from '@/modules/customers/lib/sms-opt-outs'
 import { isAutomatedMail } from '@/lib/automated-mail'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decryptRowFields, CONTACT_ENTITY_KEY } from '@open-mercato/shared/lib/encryption/decryptRows'
@@ -493,6 +494,17 @@ async function handleSmsConversation(
   }
   if (!toPhone) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
 
+  // Opted out of this business's texts (replied STOP): no draft, no send, no
+  // AI spend. If the list cannot be read, nothing is drafted either.
+  const optedOut = await findSmsOptOut(knex, { organizationId: orgId, tenantId }, [toPhone]).then(
+    (row) => !!row,
+    (err: unknown) => {
+      console.error('[inbox.process] opt-out list unavailable; not drafting this text', err instanceof Error ? err.message : err)
+      return true
+    },
+  )
+  if (optedOut) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
+
   // Audience (identity) handling for SMS — match by the contact's email/stage/CRM
   // list (there is no inbound email address on a text). no_draft -> skip before AI.
   const senderMatch = await resolveSenderAudiences(knex, orgId, audiences, contact?.primary_email || null, contact)
@@ -611,6 +623,9 @@ async function handleSmsConversation(
       await fireAlert(false)
       return 'sent'
     }
+    // Refused because the person opted out of texts (a STOP that landed after
+    // the check above, or Twilio 21610): nothing to review, nothing to send.
+    if (sendResult.code === SMS_OPTED_OUT_CODE) { await markDrafted(knex, conv.id, orgId); return 'skipped' }
     // Send failed (e.g. no connected Twilio / no SMS number configured): fall
     // back to holding the draft for manual review rather than dropping it.
     console.error('[inbox.process] SMS auto-send failed, holding instead', { orgId, convId: conv.id, err: sendResult.error })

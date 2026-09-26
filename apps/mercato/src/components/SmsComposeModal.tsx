@@ -1,23 +1,35 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { X, Send, Loader2, MessageSquare } from 'lucide-react'
+import { X, Send, Loader2, MessageSquare, Ban } from 'lucide-react'
 
 interface SmsComposeProps {
   contactName: string
   contactPhone: string
   contactId?: string
+  /** ISO date the contact opted out of texts (replied STOP); sending is blocked. */
+  smsOptedOutAt?: string | null
   onClose: () => void
   onSent?: () => void
 }
 
-export function SmsComposeModal({ contactName, contactPhone, contactId, onClose, onSent }: SmsComposeProps) {
+function formatDay(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? 'an earlier date' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+export function SmsComposeModal({ contactName, contactPhone, contactId, smsOptedOutAt, onClose, onSent }: SmsComposeProps) {
   const [to, setTo] = useState(contactPhone)
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Opted out of texts: known up front for this contact's number, or learned
+  // from the server's refusal (code 'sms_opted_out') for a typed number.
+  const [optedOutAt, setOptedOutAt] = useState<string | null>(smsOptedOutAt ?? null)
+  useEffect(() => { if (smsOptedOutAt) setOptedOutAt(smsOptedOutAt) }, [smsOptedOutAt])
+  const blocked = !!optedOutAt && to === contactPhone
 
   async function sendSms() {
     if (!to || !message.trim()) return
@@ -32,6 +44,9 @@ export function SmsComposeModal({ contactName, contactPhone, contactId, onClose,
       if (data.ok) {
         setSent(true)
         setTimeout(() => { onSent?.(); onClose() }, 1500)
+      } else if (data.code === 'sms_opted_out') {
+        if (to === contactPhone) setOptedOutAt(data.optedOutAt || new Date().toISOString())
+        setError(data.error || 'Not sent: this person opted out of your texts.')
       } else {
         setError(data.error || 'Failed to send')
       }
@@ -62,7 +77,16 @@ export function SmsComposeModal({ contactName, contactPhone, contactId, onClose,
         ) : (
           <>
             <div className="px-5 py-4 space-y-3">
-              {error && <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded">{error}</p>}
+              {blocked && (
+                <div role="alert" className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 px-3 py-2 rounded">
+                  <Ban className="size-3.5 shrink-0 mt-px" />
+                  <span>
+                    {contactName} opted out of your texts on {formatDay(optedOutAt!)} (they replied STOP), so texts to this number are blocked.
+                    Carriers would block it too. They can text START to your number to opt back in.
+                  </span>
+                </div>
+              )}
+              {error && !blocked && <p className="text-xs text-destructive bg-destructive/10 px-3 py-2 rounded">{error}</p>}
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1">To</label>
                 <input value={to} onChange={e => setTo(e.target.value)} type="tel"
@@ -79,7 +103,7 @@ export function SmsComposeModal({ contactName, contactPhone, contactId, onClose,
             </div>
             <div className="px-5 py-3 border-t flex items-center justify-between">
               <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-              <Button type="button" size="sm" onClick={sendSms} disabled={sending || !to || !message.trim()}>
+              <Button type="button" size="sm" onClick={sendSms} disabled={sending || blocked || !to || !message.trim()}>
                 {sending ? <><Loader2 className="size-3 animate-spin mr-1.5" /> Sending...</> : <><Send className="size-3.5 mr-1.5" /> Send SMS</>}
               </Button>
             </div>

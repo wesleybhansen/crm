@@ -240,11 +240,22 @@ export async function POST(req: Request) {
           // failed send stops the enrollment, as a failed email does.
           const outcome = await runSequenceSmsStep(knex, {
             executionId: execution.execution_id,
+            enrollmentId: execution.enrollment_id,
             organizationId: execution.organization_id,
             tenantId: execution.tenant_id,
             contactId: execution.contact_id,
             message: config.message,
           })
+          // The opt-out list could not be read: nothing was sent, the step is
+          // scheduled again shortly and the enrollment does not advance.
+          if (outcome === 'waiting') continue
+          // The person opted out of this business's texts (replied STOP, or
+          // Twilio 21610): nothing was sent and the step already stopped the
+          // enrollment ('opted_out'). Never retried, never advanced.
+          if (outcome === 'opted_out') {
+            processed++
+            continue
+          }
           if (outcome === 'failed') {
             await markEnrollmentFailed(knex, execution.enrollment_id)
             processed++
